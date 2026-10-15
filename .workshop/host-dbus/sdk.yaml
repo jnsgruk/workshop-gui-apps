@@ -1,0 +1,15 @@
+name: host-dbus
+base: ubuntu@24.04
+summary: Mounted filtered host session bus for applications that opt in
+
+plugs:
+  host-session:
+    interface: mount
+    # Keep mounts outside /run so runtime setup cannot hide them. Applications
+    # select this bus explicitly; their own local buses remain available.
+    workshop-target: /mnt/workshop-host/session
+    uid: 1000
+    gid: 1000
+    mode: 0700
+    # Clients connect to sockets; only the host helper may replace them.
+    read-only: true

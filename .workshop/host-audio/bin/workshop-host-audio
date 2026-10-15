@@ -1,0 +1,16 @@
+#!/bin/bash
+set -euo pipefail
+
+if [ "$#" -eq 0 ]; then
+  echo 'Usage: workshop-host-audio COMMAND [ARG...]' >&2
+  exit 2
+fi
+
+# Manage the guest service through its local bus, even if the caller selected
+# a host D-Bus proxy for the application. SDK mounts/services use guest UID 1000.
+runtime=/run/user/1000
+XDG_RUNTIME_DIR="$runtime" DBUS_SESSION_BUS_ADDRESS="unix:path=$runtime/bus" \
+  systemctl --user start workshop-pipewire-pulse.service
+
+export PULSE_SERVER="unix:$runtime/pulse/native"
+exec "$@"

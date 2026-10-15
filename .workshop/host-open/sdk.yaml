@@ -1,0 +1,12 @@
+name: host-open
+base: ubuntu@24.04
+summary: Go xdg-open compatibility client for the host opener service
+
+plugs:
+  host-open:
+    interface: mount
+    workshop-target: /mnt/workshop-host/open
+    uid: 1000
+    gid: 1000
+    mode: 0700
+    read-only: true

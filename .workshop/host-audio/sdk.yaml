@@ -1,0 +1,13 @@
+name: host-audio
+base: ubuntu@24.04
+summary: PulseAudio compatibility connected to the host PipeWire graph
+
+plugs:
+  host-pipewire:
+    interface: mount
+    # Preserve native PipeWire file-descriptor passing; do not byte-relay it.
+    workshop-target: /mnt/workshop-host/pipewire
+    uid: 1000
+    gid: 1000
+    mode: 0700
+    read-only: true

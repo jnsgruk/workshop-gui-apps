@@ -1,0 +1,25 @@
+[Unit]
+Description=Read-only filtered host session bus for Firefox
+# This is a late runtime mount, not a prerequisite of local-fs.target.
+# A direct Workshop mount under /run can be hidden by runtime setup; the
+# unprivileged Firefox launcher cannot recreate this confined-path bind mount.
+# Keep the host directory separate from the writable Snap runtime, and read-only
+# in the guest so runtime cleanup cannot unlink the proxy socket. Mount the whole
+# directory so host helper restarts can replace the socket without a stale bind.
+DefaultDependencies=no
+BindsTo=user-runtime-dir@1000.service
+Requires=workshop-firefox-runtime.service
+After=user-runtime-dir@1000.service workshop-firefox-runtime.service
+Before=user@1000.service umount.target
+Conflicts=umount.target
+RequiresMountsFor=/mnt/workshop-host/session
+
+[Mount]
+What=/mnt/workshop-host/session
+Where=/run/user/1000/snap.firefox/hostbus
+Type=none
+Options=bind,ro
+DirectoryMode=0700
+
+[Install]
+WantedBy=user@1000.service multi-user.target

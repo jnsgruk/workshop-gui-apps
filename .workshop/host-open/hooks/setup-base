@@ -1,0 +1,14 @@
+#!/bin/bash
+set -euo pipefail
+
+# The dev workshop builds one static host/guest binary; the runtime SDK needs no compiler.
+if [ ! -x "$SDK/bin/workshop-desktop" ]; then
+  echo 'Build workshop-desktop first: workshop run dev -- build; then launch or refresh firefox.' >&2
+  exit 1
+fi
+
+# Cover PATH and absolute-path callers. Preserve xdg-utils' utility if present,
+# and divert future package installs too; the client does not need xdg-utils.
+dpkg-divert --local --rename --add /usr/bin/xdg-open
+install -m 0755 "$SDK/bin/workshop-desktop" /usr/local/bin/workshop-desktop
+install -m 0755 "$SDK/bin/xdg-open" /usr/bin/xdg-open

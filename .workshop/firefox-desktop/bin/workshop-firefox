@@ -1,0 +1,31 @@
+#!/bin/bash
+set -euo pipefail
+
+if [ "$(id -u)" != 1000 ]; then
+  echo 'Run Firefox as the workshop user (UID 1000).' >&2
+  exit 1
+fi
+
+if [ -z "${WAYLAND_DISPLAY:-}" ]; then
+  echo 'A Wayland display is required. Connect firefox/firefox-desktop:desktop from your host graphical session.' >&2
+  exit 1
+fi
+export MOZ_ENABLE_WAYLAND=1 GDK_BACKEND=wayland
+
+# Snap needs the guest's local user bus to create its systemd scope.
+# Audio setup belongs to workshop-host-audio, composed by the workshop action.
+export XDG_RUNTIME_DIR=/run/user/1000
+export DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus
+unset DBUS_SYSTEM_BUS_ADDRESS
+
+# Snap must create its transient scope through the container's systemd user
+# manager. Switch buses only after entering the confined snap environment;
+# --shell runs Firefox's command chain before executing this shell command.
+exec snap run --shell firefox -c '
+  if [ ! -S /run/user/1000/snap.firefox/hostbus/bus ]; then
+    echo "Host session D-Bus socket is missing. Keep workshop-desktop host serve (or host dbus) running; refresh and reconnect the workshop if its hostbus mount is missing." >&2
+    exit 1
+  fi
+  export DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/snap.firefox/hostbus/bus
+  exec "$SNAP/firefox.launcher" --no-remote "$@"
+' workshop-firefox "$@"

@@ -1,0 +1,14 @@
+[Unit]
+Description=Prepare Firefox's user-owned Snap runtime directory
+DefaultDependencies=no
+BindsTo=user-runtime-dir@1000.service
+After=user-runtime-dir@1000.service
+Before=run-user-1000-snap.firefox-hostbus.mount user@1000.service umount.target
+Conflicts=umount.target
+
+[Service]
+Type=oneshot
+# DirectoryMode on a mount unit creates missing parents as root. Snap's runtime
+# parent must instead be private to the workshop user, including after reboot.
+ExecStart=/usr/bin/install -d -o 1000 -g 1000 -m 0700 /run/user/1000/snap.firefox
+RemainAfterExit=yes

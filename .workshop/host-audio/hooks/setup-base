@@ -1,0 +1,19 @@
+#!/bin/bash
+set -euo pipefail
+
+export DEBIAN_FRONTEND=noninteractive
+apt-get update
+apt-get install -y --no-install-recommends pipewire-pulse dbus-user-session
+
+# The host owns the graph and session manager. Only our compatibility server
+# should listen on the guest Pulse socket, including after socket activation.
+systemctl --global mask pipewire.service pipewire.socket \
+  pipewire-pulse.service pipewire-pulse.socket wireplumber.service
+
+install -m 0644 "$SDK/systemd/workshop-pipewire-pulse.service" \
+  /etc/systemd/user/workshop-pipewire-pulse.service
+install -m 0755 "$SDK/bin/workshop-host-audio" /usr/local/bin/workshop-host-audio
+
+# Start on demand through the wrapper, rather than for every user login.
+systemctl --global disable workshop-pipewire-pulse.service
+rm -f /etc/profile.d/workshop-host-audio.sh

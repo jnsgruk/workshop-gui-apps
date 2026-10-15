@@ -1,0 +1,22 @@
+name: dev
+base: ubuntu@24.04
+
+sdks:
+  - name: go
+    channel: "1.27"
+
+actions:
+  build: |
+    set -eu
+    cd /project
+    mkdir -p bin
+    CGO_ENABLED=0 go build -buildvcs=false -o bin/workshop-desktop ./cmd/workshop-desktop
+    install -D -m 0755 bin/workshop-desktop .workshop/host-open/bin/workshop-desktop
+
+  test: |
+    cd /project
+    exec go test "$@" ./...
+
+  fmt: |
+    cd /project
+    exec gofmt -w cmd internal tests

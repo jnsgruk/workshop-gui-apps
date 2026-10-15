@@ -1,0 +1,12 @@
+name: firefox
+base: ubuntu@24.04
+
+sdks:
+  - name: project-host-audio
+  - name: project-host-dbus
+  - name: project-host-open
+  - name: project-firefox-desktop
+
+actions:
+  firefox: |
+    exec /usr/local/bin/workshop-host-audio /usr/local/bin/workshop-firefox "$@"

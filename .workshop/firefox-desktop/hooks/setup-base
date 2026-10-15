@@ -1,0 +1,36 @@
+#!/bin/bash
+set -euo pipefail
+
+export DEBIAN_FRONTEND=noninteractive
+apt-get update
+apt-get install -y --no-install-recommends snapd dbus-user-session
+
+install -m 0755 "$SDK/bin/workshop-firefox" /usr/local/bin/workshop-firefox
+
+# Snap-specific adaptation of the generic host-dbus mount. This stays with
+# Firefox because another application may require a different confined path.
+# Migrate from the old mount over the entire writable Snap runtime directory.
+# The following reconnect/reboot removes the old active mount.
+if [ -f /etc/systemd/system/run-user-1000-snap.firefox.mount ]; then
+  systemctl disable run-user-1000-snap.firefox.mount
+  rm /etc/systemd/system/run-user-1000-snap.firefox.mount
+fi
+install -m 0644 "$SDK/systemd/workshop-firefox-runtime.service" \
+  /etc/systemd/system/workshop-firefox-runtime.service
+install -m 0644 "$SDK/systemd/run-user-1000-snap.firefox-hostbus.mount" \
+  /etc/systemd/system/run-user-1000-snap.firefox-hostbus.mount
+# Enable for the next boot; Workshop has not connected host mounts in this hook.
+systemctl daemon-reload
+systemctl enable run-user-1000-snap.firefox-hostbus.mount
+
+# snapd must use the container's system bus throughout installation and run.
+unset DBUS_SYSTEM_BUS_ADDRESS
+systemctl enable --now snapd.socket
+timeout 300 snap wait system seed.loaded
+if ! snap list firefox >/dev/null 2>&1; then
+  snap install firefox --channel=latest/stable
+fi
+# Explicit connections document the required nested Snap permissions.
+for plug in audio-playback audio-record camera desktop desktop-legacy wayland opengl; do
+  snap connect "firefox:$plug"
+done

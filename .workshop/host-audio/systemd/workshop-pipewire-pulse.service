@@ -1,0 +1,17 @@
+[Unit]
+Description=PulseAudio protocol bridge to the host PipeWire security context
+# The packaged service pulls in a local graph/session manager. This daemon
+# instead shares the host graph; systemd owns its lifetime across app launches.
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+Environment=XDG_RUNTIME_DIR=/run/user/1000
+Environment=PIPEWIRE_REMOTE=/mnt/workshop-host/pipewire/pipewire-0
+Environment=DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus
+ExecStart=/usr/bin/pipewire-pulse
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=default.target
