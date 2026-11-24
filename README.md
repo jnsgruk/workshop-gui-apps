@@ -13,24 +13,19 @@ and [live acceptance checks](docs/desktop-integration.md#live-acceptance-checks)
 
 ## Build and run
 
-The [development workshop](.workshop/dev.yaml) uses Go 1.27 and the standard
-library to build one static `workshop-desktop` binary with host and guest subcommands:
+Build the bridge before launching or refreshing the apps workshop:
 
 ```sh
 workshop launch dev
 workshop run dev -- build
 ```
 
-Build writes `bin/workshop-desktop` and stages the same binary for the
-[host integration setup hook](.workshop/host-integration/hooks/setup-base).
-Build before launching or refreshing the [apps workshop](.workshop/apps.yaml).
-The hook requires the staged binary. Its architecture must match the host and
-guest. The runtime SDKs need neither Go nor Python.
+See [development workflow](AGENTS.md#development-workflow) for build output,
+testing, and how to apply source changes.
 
 The host needs Workshop/LXD with nested Snap support, a Wayland session,
 a working XDG Desktop Portal, `xdg-dbus-proxy`, `pw-container`, and `stdbuf`.
-Host PipeWire must support
-SecurityContext and have a running session manager such as WirePlumber. See the [PipeWire socket requirements](docs/desktop-integration.md#audio).
+Host PipeWire must support SecurityContext and have a running session manager such as WirePlumber. See the [PipeWire socket requirements](docs/desktop-integration.md#audio).
 
 ```sh
 workshop launch apps
@@ -89,50 +84,18 @@ Run the host D-Bus helper before opening URLs. The wrapper accepts a single
 non-file URI and reports success when the portal returns a request handle.
 See [host URL opening](docs/desktop-integration.md#host-url-opening) for details.
 
-## Automated tests and limits
-
-`workshop run dev -- fmt` formats the Go source. `workshop run dev -- test` runs
-all Go tests, including shell-wrapper checks.
-
-- [Host lifecycle](internal/host/host_test.go): capability locks, symlink/file
-  rejection, child cancellation, unexpected process exit, and structured child
-  output.
-- [PipeWire socket](internal/pipewire/socket_test.go): reject non-sockets and
-  preserve the socket inode when publishing it.
-- [Connection setup](internal/hostcmd/connect_test.go): command order, mount paths,
-  the shared desktop plug, the Firefox camera plug, and stopping on remount
-  failure, using a fake Workshop command.
-- [Host serving](internal/hostcmd/serve_test.go): handler filtering, capability
-  locks, cancellation, and cleanup when a sibling fails.
-- [Command dispatch](cmd/workshop-desktop/main_test.go): host and guest routing,
-  help without host initialization, and invalid command exit codes.
-- [Logging](internal/logging/logging_test.go): split output lines and flushing
-  trailing child output.
-- [SDK wrappers](tests/sdk_test.go): audio service environment, application
-  arguments and exit status, portal URL routing and error propagation, Firefox’s delayed bus
-  switch and missing-socket check, and refusing installation without a built
-  binary, using fake commands rather than installing services.
-
-Tests do not open real host applications. Unix-socket tests skip when the sandbox
-prohibits binding. Actual peer-credential extraction, D-Bus filtering, Firefox
-installation and confinement, host URL handler behavior, and audio/camera behavior still
-need live validation.
-
-Use the [live acceptance checks](docs/desktop-integration.md#live-acceptance-checks)
-to verify desktop behavior in a connected workshop.
-
-## Apply changes
+## Upgrade from the dedicated opener
 
 When upgrading from the dedicated opener bridge, stop any standalone
 `workshop-desktop host open` process before refreshing the apps workshop.
 Use `host dbus` or `host serve` for URL opening after the upgrade.
 
-Rebuild after Go changes. For guest SDK changes, stop the helpers, build, run
-`workshop refresh apps`, reconnect with `bin/workshop-desktop host connect`,
-then restart the helpers and relaunch your apps. Go-only host changes take
-effect after rebuilding and restarting the host helpers. Refresh the guest
-when it needs the updated shared binary. If audio clients fail to reconnect after
-restarting the host helper:
+Follow the [refresh workflow](AGENTS.md#apply-source-changes) after rebuilding.
+
+## Troubleshoot audio
+
+If audio clients fail to reconnect after restarting the host helper, restart
+the guest service and check its log.
 
 ```sh
 workshop exec apps -- systemctl --user restart workshop-pipewire-pulse

@@ -203,7 +203,7 @@ relaunch Any.
 ## Live acceptance checks
 
 Run these checks in the connected `apps` workshop with the host handlers
-running. The [automated tests](../README.md#automated-tests-and-limits) cover
+running. The [automated tests](../AGENTS.md#testing) cover
 the helpers and wrappers.
 
 | Capability | What to verify in a live session |
