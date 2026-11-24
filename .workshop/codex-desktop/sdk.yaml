@@ -1,0 +1,3 @@
+name: codex-desktop
+base: ubuntu@24.04
+summary: ChatGPT desktop with Codex from OpenAI's signed APT repository

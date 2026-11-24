@@ -1,0 +1,29 @@
+#!/bin/bash
+set -euo pipefail
+
+arch=$(dpkg --print-architecture)
+case "$arch" in
+  amd64|arm64) ;;
+  *)
+    echo "OpenAI's ChatGPT desktop package is unavailable for $arch." >&2
+    exit 1
+    ;;
+esac
+
+export DEBIAN_FRONTEND=noninteractive
+apt-get update
+apt-get install -y --no-install-recommends ca-certificates
+
+# Use the keyring and source paths managed by the official chatgpt package.
+install -D -m 0644 "$SDK/chatgpt-archive-keyring.gpg" /usr/share/keyrings/chatgpt-archive-keyring.gpg
+cat > /etc/apt/sources.list.d/chatgpt.sources <<EOF_SOURCE
+Types: deb
+URIs: https://persistent.oaistatic.com/codex-app-prod/linux/deb
+Suites: stable
+Components: main
+Architectures: $arch
+Signed-By: /usr/share/keyrings/chatgpt-archive-keyring.gpg
+EOF_SOURCE
+
+apt-get update
+apt-get install -y --no-install-recommends chatgpt
