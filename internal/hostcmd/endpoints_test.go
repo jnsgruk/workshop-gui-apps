@@ -239,7 +239,7 @@ func TestEndpointsReportEarlyExit(t *testing.T) {
 		message string
 	}{
 		{"dbus", runDBus, "exited before readiness: exit status 4"},
-		{"pipewire", runPipeWire, "unexpected pw-container output"},
+		{"pipewire", runPipeWire, "closed stdout before publishing a socket"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			p := endpointProject(t)
@@ -252,6 +252,25 @@ func TestEndpointsReportEarlyExit(t *testing.T) {
 	}
 }
 
+func TestPipeWireReportsInvalidAnnouncements(t *testing.T) {
+	for _, tc := range []struct {
+		mode    string
+		message string
+	}{
+		{"malformed", "unexpected pw-container output"},
+		{"oversized", "read pw-container socket announcement: bufio.Scanner: token too long"},
+	} {
+		t.Run(tc.mode, func(t *testing.T) {
+			p := endpointProject(t)
+			t.Setenv("ENDPOINT_TEST_ANNOUNCEMENT", tc.mode)
+			err := startEndpoint(t, p, runPipeWire).wait(t)
+			if err == nil || !strings.Contains(err.Error(), tc.message) {
+				t.Fatalf("wanted %q, got %v", tc.message, err)
+			}
+		})
+	}
+}
+
 // The helper implements only the external proxy/container socket protocols.
 func TestEndpointChild(t *testing.T) {
 	if len(os.Args) < 5 || os.Args[2] != "--" || os.Args[3] != "endpoint-child" {
@@ -259,6 +278,15 @@ func TestEndpointChild(t *testing.T) {
 	}
 	if os.Getenv("ENDPOINT_TEST_EXIT") == "4" {
 		os.Exit(4)
+	}
+
+	switch os.Getenv("ENDPOINT_TEST_ANNOUNCEMENT") {
+	case "malformed":
+		_, _ = fmt.Fprintln(os.Stdout, "invalid announcement")
+		return
+	case "oversized":
+		_, _ = fmt.Fprintln(os.Stdout, strings.Repeat("x", 128*1024))
+		return
 	}
 
 	root := os.Getenv("ENDPOINT_TEST_ROOT")

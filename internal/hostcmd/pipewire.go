@@ -5,7 +5,9 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -37,32 +39,51 @@ func runPipeWire(ctx context.Context, p host.Project) error {
 		return err
 	}
 
-	defer func() { _ = reader.Close() }()
 	defer func() { _ = writer.Close() }()
 
 	// Some pw-container versions do not flush their initial path on a pipe.
 	process, err := host.Start(ctx, func(cmd *exec.Cmd) { cmd.Stdout = writer }, "stdbuf", "-oL", "pw-container", "-P", string(properties))
 	if err != nil {
+		_ = reader.Close()
 		return err
 	}
 
 	_ = writer.Close()
 	defer process.Stop()
 
-	lines := make(chan string, 1)
+	type announcement struct {
+		line string
+		err  error
+	}
+	startup := make(chan announcement, 1)
+	readerDone := make(chan struct{})
 	go func() {
+		defer close(readerDone)
 		scanner := bufio.NewScanner(reader)
-
-		if scanner.Scan() {
-			lines <- scanner.Text()
-		} else {
-			lines <- ""
+		if !scanner.Scan() {
+			if err := scanner.Err(); err != nil {
+				startup <- announcement{err: fmt.Errorf("read pw-container socket announcement: %w", err)}
+			} else {
+				startup <- announcement{err: fmt.Errorf("pw-container closed stdout before publishing a socket: %w", io.EOF)}
+			}
+			return
 		}
+		startup <- announcement{line: scanner.Text()}
 
 		// The first line is the socket protocol; subsequent lines are diagnostics.
+		logger := logging.Logger(ctx).With("process", "pw-container", "stream", "stdout")
 		for scanner.Scan() {
-			logging.Logger(ctx).Info(scanner.Text(), "process", "pw-container", "stream", "stdout")
+			logger.InfoContext(ctx, scanner.Text())
 		}
+		if err := scanner.Err(); err != nil && ctx.Err() == nil && !errors.Is(err, os.ErrClosed) {
+			logger.WarnContext(ctx, "could not read pw-container diagnostics", "error", err)
+			// Keep draining stdout if scanning stopped at an oversized line.
+			_, _ = io.Copy(io.Discard, reader)
+		}
+	}()
+	defer func() {
+		_ = reader.Close()
+		<-readerDone
 	}()
 
 	timer := time.NewTimer(10 * time.Second)
@@ -73,12 +94,15 @@ func runPipeWire(ctx context.Context, p host.Project) error {
 		return ctx.Err()
 	case <-timer.C:
 		return fmt.Errorf("pw-container did not publish a socket within 10 seconds")
-	case line := <-lines:
-		if err := pipewire.Publish(line, socket); err != nil {
+	case result := <-startup:
+		if result.err != nil {
+			return result.err
+		}
+		if err := pipewire.Publish(result.line, socket); err != nil {
 			return err
 		}
 	}
 
-	logging.Logger(ctx).Info("PipeWire ready", "socket", socket)
+	logging.Logger(ctx).InfoContext(ctx, "PipeWire ready", "socket", socket)
 	return process.Wait(ctx)
 }
