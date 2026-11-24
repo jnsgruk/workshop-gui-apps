@@ -2,6 +2,7 @@ package integration
 
 import (
 	"bytes"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -133,10 +134,17 @@ fi
 		t.Run(strings.Join(tc.args, " "), func(t *testing.T) {
 			log := filepath.Join(t.TempDir(), "call")
 			t.Setenv("OPENER_TEST_LOG", log)
-			cmd := exec.Command(wrapper, tc.args...)
-			output, _ := cmd.CombinedOutput()
-			if cmd.ProcessState == nil || cmd.ProcessState.ExitCode() != tc.code || !strings.Contains(string(output), tc.output) {
-				t.Fatalf("unexpected status or output: %v, %q", cmd.ProcessState, output)
+			output, err := exec.CommandContext(t.Context(), wrapper, tc.args...).CombinedOutput()
+			code := 0
+			if err != nil {
+				exit, ok := errors.AsType[*exec.ExitError](err)
+				if !ok {
+					t.Fatalf("run %q: %v, output %q", tc.args, err, output)
+				}
+				code = exit.ExitCode()
+			}
+			if code != tc.code || !strings.Contains(string(output), tc.output) {
+				t.Fatalf("got exit %d and output %q, want exit %d and output containing %q", code, output, tc.code, tc.output)
 			}
 			if _, err := os.Stat(log); !os.IsNotExist(err) {
 				t.Fatalf("gdbus called for %q: %v", tc.args, err)
