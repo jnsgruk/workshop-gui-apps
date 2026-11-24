@@ -22,7 +22,7 @@ var handlers = []handler{
 func selectHandlers(value string) ([]handler, error) {
 	var selected []handler
 	seen := make(map[string]bool)
-	for _, name := range strings.Split(value, ",") {
+	for name := range strings.SplitSeq(value, ",") {
 		name = strings.TrimSpace(name)
 		var found bool
 		for _, h := range handlers {

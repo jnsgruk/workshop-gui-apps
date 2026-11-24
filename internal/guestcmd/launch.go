@@ -105,8 +105,7 @@ func startAudioAndExec(cmd *exec.Cmd, stdout, stderr io.Writer, runtime string) 
 	service.Env = append(os.Environ(), "XDG_RUNTIME_DIR="+runtime, "DBUS_SESSION_BUS_ADDRESS=unix:path="+runtime+"/bus")
 	service.Stdin, service.Stdout, service.Stderr = os.Stdin, stdout, stderr
 	if err := service.Run(); err != nil {
-		var status *exec.ExitError
-		if errors.As(err, &status) && status.ExitCode() > 0 {
+		if status, ok := errors.AsType[*exec.ExitError](err); ok && status.ExitCode() > 0 {
 			return status.ExitCode()
 		}
 		_, _ = fmt.Fprintln(stderr, err)

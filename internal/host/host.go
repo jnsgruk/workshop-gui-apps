@@ -150,10 +150,13 @@ func Run(capability string, args []string, stderr io.Writer, register func(*flag
 		return run(ctx, p)
 	}()
 
+	if ctx.Err() != nil {
+		logger.InfoContext(ctx, "host command canceled", "cause", context.Cause(ctx))
+	}
 	stop()
 
 	if err != nil && !errors.Is(err, context.Canceled) {
-		logger.Error("host command failed", "error", err)
+		logger.ErrorContext(ctx, "host command failed", "error", err)
 		return 1
 	}
 	return 0
