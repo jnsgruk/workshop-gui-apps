@@ -43,8 +43,12 @@ all Go tests, including shell-wrapper checks.
   when a sibling fails. [Tests](internal/hostcmd/serve_test.go)
 - CLI tests cover routing, help, and exit codes. [Tests](cmd/workshop-desktop/main_test.go)
 - Logging tests cover split lines and trailing child output. [Tests](internal/logging/logging_test.go)
-- SDK tests use fake commands to verify audio setup, URL routing and errors,
-  Firefox’s bus switch and socket check, and the build prerequisite. [Tests](tests/sdk_test.go)
+- Guest launch tests observe the session bus at Snap startup and after Firefox’s
+  bus switch. They also check host-mode launches and missing prerequisites. [Tests](internal/guestcmd/launch_test.go)
+- Host endpoint tests exercise D-Bus proxy startup, PipeWire socket publication,
+  early helper exits, and cleanup using temporary Unix sockets. [Tests](internal/hostcmd/endpoints_test.go)
+- SDK tests cover audio setup, URL routing and errors, the build prerequisite,
+  and repeated installation with a real package diversion in a disposable root. [Tests](tests/sdk_test.go)
 
 Tests do not open real host applications. D-Bus filtering, Firefox installation and
 confinement, host URL handlers, and audio and camera behavior need live

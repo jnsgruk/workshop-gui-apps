@@ -16,7 +16,6 @@ import (
 
 const (
 	guestRuntime   = "/run/user/1000"
-	localBus       = "unix:path=" + guestRuntime + "/bus"
 	hostBusSocket  = "/mnt/workshop-host/session/bus"
 	pipeWireSocket = "/mnt/workshop-host/pipewire/pipewire-0"
 )
@@ -24,6 +23,10 @@ const (
 const LaunchUsage = "Usage: workshop-desktop guest launch --session-bus=host|local COMMAND [ARG...]"
 
 func Launch(args []string, stdout, stderr io.Writer) int {
+	return launch(args, stdout, stderr, os.Getuid(), guestRuntime, hostBusSocket, pipeWireSocket)
+}
+
+func launch(args []string, stdout, stderr io.Writer, uid int, runtime, hostBusSocket, pipeWireSocket string) int {
 	flags := flag.NewFlagSet("launch", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	flags.Usage = func() { fmt.Fprintln(flags.Output(), LaunchUsage) }
@@ -42,7 +45,7 @@ func Launch(args []string, stdout, stderr io.Writer) int {
 		flags.Usage()
 		return 2
 	}
-	if os.Getuid() != 1000 {
+	if uid != 1000 {
 		fmt.Fprintln(stderr, "Run the launcher as the workshop user (UID 1000).")
 		return 1
 	}
@@ -54,17 +57,15 @@ func Launch(args []string, stdout, stderr io.Writer) int {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	probe := exec.CommandContext(ctx, "wayland-info")
-	probe.Env = append(os.Environ(), "XDG_RUNTIME_DIR="+guestRuntime)
+	probe.Env = append(os.Environ(), "XDG_RUNTIME_DIR="+runtime)
 	probe.Stderr = stderr
 	if err := probe.Run(); err != nil {
 		fmt.Fprintf(stderr, "Cannot connect to the Wayland display: %v. Reconnect the workshop from your host graphical session.\n", err)
 		return 1
 	}
 
-	sessionBus := localBus
-	socket := guestRuntime + "/bus"
+	socket := runtime + "/bus"
 	if *bus == "host" {
-		sessionBus = "unix:path=" + hostBusSocket
 		socket = hostBusSocket
 	}
 	if !isSocket(socket) {
@@ -77,12 +78,12 @@ func Launch(args []string, stdout, stderr io.Writer) int {
 	}
 
 	cmd := exec.Command(flags.Arg(0), flags.Args()[1:]...)
-	cmd.Env = append(os.Environ(), "XDG_RUNTIME_DIR="+guestRuntime,
-		"DBUS_SESSION_BUS_ADDRESS="+sessionBus, "GDK_BACKEND=wayland")
+	cmd.Env = append(os.Environ(), "XDG_RUNTIME_DIR="+runtime,
+		"DBUS_SESSION_BUS_ADDRESS=unix:path="+socket, "GDK_BACKEND=wayland")
 	cmd.Env = slices.DeleteFunc(cmd.Environ(), func(entry string) bool {
 		return strings.HasPrefix(entry, "DBUS_SYSTEM_BUS_ADDRESS=")
 	})
-	return startAudioAndExec(cmd, stdout, stderr)
+	return startAudioAndExec(cmd, stdout, stderr, runtime)
 }
 
 func isSocket(path string) bool {
@@ -96,12 +97,12 @@ func Audio(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "Usage: workshop-host-audio COMMAND [ARG...]")
 		return 2
 	}
-	return startAudioAndExec(exec.Command(args[0], args[1:]...), stdout, stderr)
+	return startAudioAndExec(exec.Command(args[0], args[1:]...), stdout, stderr, guestRuntime)
 }
 
-func startAudioAndExec(cmd *exec.Cmd, stdout, stderr io.Writer) int {
+func startAudioAndExec(cmd *exec.Cmd, stdout, stderr io.Writer, runtime string) int {
 	service := exec.Command("systemctl", "--user", "start", "workshop-pipewire-pulse.service")
-	service.Env = append(os.Environ(), "XDG_RUNTIME_DIR="+guestRuntime, "DBUS_SESSION_BUS_ADDRESS="+localBus)
+	service.Env = append(os.Environ(), "XDG_RUNTIME_DIR="+runtime, "DBUS_SESSION_BUS_ADDRESS=unix:path="+runtime+"/bus")
 	service.Stdin, service.Stdout, service.Stderr = os.Stdin, stdout, stderr
 	if err := service.Run(); err != nil {
 		var status *exec.ExitError
@@ -116,7 +117,7 @@ func startAudioAndExec(cmd *exec.Cmd, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, cmd.Err)
 		return 127
 	}
-	cmd.Env = append(cmd.Environ(), "PULSE_SERVER=unix:"+guestRuntime+"/pulse/native")
+	cmd.Env = append(cmd.Environ(), "PULSE_SERVER=unix:"+runtime+"/pulse/native")
 	if err := syscall.Exec(cmd.Path, cmd.Args, cmd.Environ()); err != nil {
 		fmt.Fprintln(stderr, err)
 		return 126

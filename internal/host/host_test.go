@@ -1,13 +1,20 @@
 package host
 
 import (
+	"bufio"
 	"bytes"
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
+	"log/slog"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -74,60 +81,217 @@ func TestPrivatePathsAndSocketCleanupRejectSymlinksAndFiles(t *testing.T) {
 	}
 }
 
-func TestProcessCancellationAndEarlyExit(t *testing.T) {
+func TestLoadResolvesProjectAndSecuresEndpointDirectories(t *testing.T) {
+	parent := t.TempDir()
+	directory := filepath.Join(parent, "project")
+	if err := os.Mkdir(directory, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(directory, filepath.Join(parent, "linked")); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(parent)
+
+	if _, err := Load("linked"); err == nil || !strings.Contains(err.Error(), "launch the workshop first") {
+		t.Fatalf("missing project lock: %v", err)
+	}
+	lock := filepath.Join(directory, ".workshop.lock")
+	for _, id := range []string{"", "../invalid", "invalid project", "two\nlines"} {
+		if err := os.WriteFile(lock, []byte(id), 0600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := Load("linked"); err == nil || !strings.Contains(err.Error(), "invalid project ID") {
+			t.Fatalf("invalid project ID %q: %v", id, err)
+		}
+	}
+
+	prefix := fmt.Sprintf("workshop-desktop-%d-", os.Getuid())
+	root, err := os.MkdirTemp("/tmp", prefix)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(root) })
+	id := strings.TrimPrefix(filepath.Base(root), prefix)
+	if err := os.WriteFile(lock, []byte("  "+id+"\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(root, 0755); err != nil {
+		t.Fatal(err)
+	}
+	p, err := Load("linked")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := (Project{Directory: directory, ID: id, Root: root}); p != want {
+		t.Fatalf("loaded %+v, want %+v", p, want)
+	}
+	for _, path := range []string{root, filepath.Join(root, "session"), filepath.Join(root, "pipewire")} {
+		info, err := os.Lstat(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !info.IsDir() || info.Mode().Perm() != 0700 {
+			t.Fatalf("endpoint directory %q has mode %v", path, info.Mode())
+		}
+	}
+}
+
+func startProcessChild(t *testing.T, ctx context.Context, mode string, configure func(*exec.Cmd)) *Process {
+	t.Helper()
+	p, err := Start(ctx, func(cmd *exec.Cmd) {
+		cmd.Env = append(os.Environ(), "WORKSHOP_TEST_CHILD="+mode)
+		if configure != nil {
+			configure(cmd)
+		}
+	}, os.Args[0], "-test.run=^TestProcessChild$", "--", "process-child")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(p.Stop)
+	return p
+}
+
+func TestProcessObservesParentCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
-	p, err := Start(ctx, func(c *exec.Cmd) { c.Env = append(os.Environ(), "WORKSHOP_TEST_CHILD=1") }, os.Args[0], "-test.run=^TestProcessChild$")
-	if err != nil {
-		t.Fatal(err)
-	}
-	cancel()
-	finished := make(chan struct{})
-	go func() { p.Stop(); close(finished) }()
+	defer cancel()
+	reader, writer := io.Pipe()
+	defer reader.Close()
+	defer writer.Close()
+	p := startProcessChild(t, ctx, "wait", func(cmd *exec.Cmd) { cmd.Stdout = writer })
+
+	ready := make(chan string, 1)
+	go func() {
+		line, _ := bufio.NewReader(reader).ReadString('\n')
+		ready <- line
+	}()
 	select {
-	case <-finished:
+	case line := <-ready:
+		if line != "ready\n" {
+			t.Fatalf("child did not signal readiness: %q", line)
+		}
 	case <-time.After(5 * time.Second):
-		t.Fatal("child did not stop")
+		t.Fatal("child did not signal readiness")
 	}
 
-	p, err = Start(context.Background(), nil, os.Args[0], "-test.run=^TestProcessChild$")
+	cancel()
+	select {
+	case <-p.done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("child continued running after cancellation of the parent context")
+	}
+}
+
+func TestProcessUnexpectedSuccess(t *testing.T) {
+	p := startProcessChild(t, context.Background(), "success", nil)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := p.Wait(ctx); err == nil || !strings.Contains(err.Error(), "exited unexpectedly") {
+		t.Fatalf("wanted unexpected successful exit, got %v", err)
+	}
+}
+
+func TestWaitSocketRequiresSocket(t *testing.T) {
+	p := startProcessChild(t, context.Background(), "wait", nil)
+	path := filepath.Join(t.TempDir(), "bus")
+	if err := os.WriteFile(path, nil, 0600); err != nil {
+		t.Fatal(err)
+	}
+	// Give WaitSocket time to observe the regular file before the caller deadline.
+	ctx, cancel := context.WithTimeout(context.Background(), 250*time.Millisecond)
+	defer cancel()
+	if err := p.WaitSocket(ctx, path); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("regular file readiness: %v", err)
+	}
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	socket, err := net.Listen("unix", path)
+	if errors.Is(err, syscall.EPERM) || errors.Is(err, syscall.EACCES) {
+		t.Skip("sandbox prohibits Unix socket binding")
+	}
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer socket.Close()
 
-	defer p.Stop()
-	if err := p.Wait(context.Background()); err == nil {
-		t.Fatal("accepted unexpected successful exit")
+	ctx, cancel = context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := p.WaitSocket(ctx, path); err != nil {
+		t.Fatal(err)
+	}
+
+}
+
+func TestWaitSocketReportsEarlyExit(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	child := startProcessChild(t, context.Background(), "failure", nil)
+	if err := child.WaitSocket(ctx, filepath.Join(t.TempDir(), "missing")); err == nil ||
+		!strings.Contains(err.Error(), "exited before readiness: exit status 4") {
+		t.Fatalf("missing early exit status: %v", err)
 	}
 }
 
 func TestProcessChild(t *testing.T) {
-	if os.Getenv("WORKSHOP_TEST_CHILD") == "output" {
-		fmt.Fprint(os.Stdout, "child output\ntrailing output")
-		fmt.Fprint(os.Stderr, "child diagnostic\n")
+	if len(os.Args) != 4 || os.Args[2] != "--" || os.Args[3] != "process-child" {
+		return
 	}
-	if os.Getenv("WORKSHOP_TEST_CHILD") == "1" {
+	switch os.Getenv("WORKSHOP_TEST_CHILD") {
+	case "output":
+		fmt.Fprint(os.Stdout, "child output\ntrailing output")
+		fmt.Fprint(os.Stderr, "child diagnostic\ntrailing diagnostic")
+		os.Exit(0) // Do not append the test runner's PASS line to stdout.
+	case "wait":
+		fmt.Fprintln(os.Stdout, "ready")
 		time.Sleep(30 * time.Second)
+	case "success":
+		os.Exit(0)
+	case "failure":
+		os.Exit(4)
 	}
 }
 
 func TestProcessOutputUsesCommandLogger(t *testing.T) {
 	var output bytes.Buffer
-	ctx := logging.WithLogger(context.Background(), logging.New(&output).With("handler", "test"))
-	p, err := Start(ctx, func(c *exec.Cmd) {
-		c.Env = append(os.Environ(), "WORKSHOP_TEST_CHILD=output")
-	}, os.Args[0], "-test.run=^TestProcessChild$")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer p.Stop()
+	logger := slog.New(slog.NewJSONHandler(&output, nil)).With("handler", "test")
+	ctx := logging.WithLogger(context.Background(), logger)
+	p := startProcessChild(t, ctx, "output", nil)
 	select {
 	case <-p.done:
 	case <-time.After(5 * time.Second):
 		t.Fatal("child did not exit")
 	}
-	for _, want := range []string{"child output", "trailing output", "child diagnostic", "handler=test", "stream=stdout", "stream=stderr", "level=WARN"} {
-		if !strings.Contains(output.String(), want) {
-			t.Errorf("missing %q in logs: %s", want, output.String())
+
+	type record struct {
+		Message string `json:"msg"`
+		Level   string `json:"level"`
+		Stream  string `json:"stream"`
+		Handler string `json:"handler"`
+		Process string `json:"process"`
+	}
+	want := map[string]record{
+		"child output":        {Level: "INFO", Stream: "stdout"},
+		"trailing output":     {Level: "INFO", Stream: "stdout"},
+		"child diagnostic":    {Level: "WARN", Stream: "stderr"},
+		"trailing diagnostic": {Level: "WARN", Stream: "stderr"},
+	}
+	decoder := json.NewDecoder(&output)
+	for {
+		var got record
+		err := decoder.Decode(&got)
+		if err == io.EOF {
+			break
 		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		expected, present := want[got.Message]
+		if !present || got.Handler != "test" || got.Process != os.Args[0] || got.Level != expected.Level || got.Stream != expected.Stream {
+			t.Fatalf("unexpected log record: %+v", got)
+		}
+		delete(want, got.Message)
+	}
+	if len(want) != 0 {
+		t.Fatalf("missing log records: %v", want)
 	}
 }

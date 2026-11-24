@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -102,6 +103,9 @@ func TestServeFailureCancelsAndWaitsForSiblingCleanup(t *testing.T) {
 			})
 			if err == nil || (!unexpectedExit && !errors.Is(err, failure)) {
 				t.Fatalf("lost handler failure: %v", err)
+			}
+			if unexpectedExit && (errors.Is(err, context.Canceled) || !strings.Contains(err.Error(), "pipewire: handler exited unexpectedly")) {
+				t.Fatalf("unexpected exit was not reported as a handler failure: %v", err)
 			}
 			select {
 			case <-cleaned:

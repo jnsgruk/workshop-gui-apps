@@ -1,13 +1,11 @@
 package integration
 
 import (
-	"errors"
-	"net"
+	"bytes"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"syscall"
 	"testing"
 )
 
@@ -124,12 +122,16 @@ fi
 		{[]string{"https://example.com", "--help"}, 1, "Usage: xdg-open URL"},
 		{[]string{"--help"}, 0, "Usage: xdg-open URL"},
 		{[]string{"--version"}, 0, "xdg-open workshop-portal"},
+		{[]string{"README.md"}, 1, "Usage: xdg-open URL"},
+		{[]string{"https:"}, 1, "Usage: xdg-open URL"},
 		{[]string{"/project/README.md"}, 1, "Usage: xdg-open URL"},
 		{[]string{"FiLe:///project/README.md"}, 1, "local files are unsupported"},
 		{[]string{"1https://example.com"}, 1, "Usage: xdg-open URL"},
 		{[]string{"https://example.com/a b"}, 1, "Usage: xdg-open URL"},
 	} {
 		t.Run(strings.Join(tc.args, " "), func(t *testing.T) {
+			log := filepath.Join(t.TempDir(), "call")
+			t.Setenv("OPENER_TEST_LOG", log)
 			cmd := exec.Command(wrapper, tc.args...)
 			output, _ := cmd.CombinedOutput()
 			if cmd.ProcessState == nil || cmd.ProcessState.ExitCode() != tc.code || !strings.Contains(string(output), tc.output) {
@@ -141,7 +143,7 @@ fi
 		})
 	}
 
-	for _, uri := range []string{"https://example.com/a?x=$(test)&q='text'", "mailto:someone@example.com"} {
+	for _, uri := range []string{"https://example.com/a?x=$(test)&q='text'", "mailto:someone@example.com", "https://example.org/tag:"} {
 		output, err := exec.Command(wrapper, uri).CombinedOutput()
 		if err != nil || len(output) != 0 {
 			t.Fatalf("unexpected result: %v, %q", err, output)
@@ -171,63 +173,125 @@ fi
 	}
 }
 
-func TestFirefoxWrapperSwitchesBusAfterSnapAndChecksSocket(t *testing.T) {
-	wrapper, err := os.ReadFile("../.workshop/firefox/bin/workshop-firefox")
+func TestSetupInstallsStagedLauncherAndGuestWrappers(t *testing.T) {
+	divert, err := exec.LookPath("dpkg-divert")
+	if err != nil {
+		t.Skip("dpkg-divert is required to exercise setup in a disposable Debian root")
+	}
+	install, err := exec.LookPath("install")
 	if err != nil {
 		t.Fatal(err)
 	}
-	root := t.TempDir()
-	// Substitute the confined runtime path, leaving the local Snap startup bus
-	// untouched. The fake snap executes the real inner shell command.
-	socket := filepath.Join(root, "bus")
-	content := strings.ReplaceAll(string(wrapper), "/run/user/1000/snap.firefox/hostbus/bus", socket)
-	content = strings.Replace(content, "/usr/local/bin/workshop-desktop", filepath.Join(root, "workshop-desktop"), 1)
-	path := filepath.Join(root, "workshop-firefox")
-	for name, script := range map[string]string{
-		"workshop-firefox": content,
-		"workshop-desktop": `#!/bin/sh
-[ "$1 $2 $3" = 'guest launch --session-bus=local' ] || exit 90
-shift 3
-exec "$@"
-`,
-		"snap": `#!/bin/sh
-[ "$MOZ_ENABLE_WAYLAND" = 1 ] || exit 91
-[ "$1 $2 $3" = 'run --shell firefox' ] || exit 93
-shift 3
-exec /bin/bash "$@"
-`,
-		"firefox.launcher": `#!/bin/sh
-printf '%s\n' "$DBUS_SESSION_BUS_ADDRESS" "$@"
-exit 7
-`,
-	} {
-		if err := os.WriteFile(filepath.Join(root, name), []byte(script), 0700); err != nil {
+	remove, err := exec.LookPath("rm")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	sdk := t.TempDir()
+	guest := t.TempDir()
+	tools := t.TempDir()
+	for _, path := range []string{"bin", "hooks", "systemd"} {
+		if err := os.Mkdir(filepath.Join(sdk, path), 0700); err != nil {
 			t.Fatal(err)
 		}
 	}
-	t.Setenv("PATH", root)
-	t.Setenv("SNAP", root)
-	t.Setenv("DBUS_SESSION_BUS_ADDRESS", "unix:path=/inherited-host-bus")
-	args := []string{path, "argument with spaces", "$(not a shell command)"}
-	// Missing endpoints must produce an actionable error before starting Firefox.
-	output, err := exec.Command("/bin/bash", args...).CombinedOutput()
-	if exit, ok := err.(*exec.ExitError); !ok || exit.ExitCode() != 1 || !strings.Contains(string(output), "Host session D-Bus socket is missing") {
-		t.Fatalf("missing socket: %v, %s", err, output)
+	for _, path := range []string{"usr/bin", "usr/local/bin", "etc/systemd/user", "etc/profile.d", "var/lib/dpkg"} {
+		if err := os.MkdirAll(filepath.Join(guest, path), 0700); err != nil {
+			t.Fatal(err)
+		}
 	}
-	listener, err := net.Listen("unix", socket)
-	if errors.Is(err, syscall.EPERM) || errors.Is(err, syscall.EACCES) {
-		t.Skip("sandbox prohibits binding a Unix socket; missing-socket check passed")
+	for _, path := range []string{"hooks/setup-base", "bin/xdg-open", "bin/workshop-host-audio", "systemd/workshop-pipewire-pulse.service"} {
+		content, err := os.ReadFile(filepath.Join("../.workshop/host-integration", path))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(sdk, path), content, 0700); err != nil {
+			t.Fatal(err)
+		}
 	}
-	if err != nil {
+
+	binary := filepath.Join(sdk, "bin/workshop-desktop")
+	if output, err := exec.Command("go", "build", "-o", binary, "../cmd/workshop-desktop").CombinedOutput(); err != nil {
+		t.Fatalf("build staged launcher: %v, %s", err, output)
+	}
+	const packagedOpener = "packaged xdg-open"
+	opener := filepath.Join(guest, "usr/bin/xdg-open")
+	if err := os.WriteFile(opener, []byte(packagedOpener), 0755); err != nil {
 		t.Fatal(err)
 	}
-	defer listener.Close()
-	output, err = exec.Command("/bin/bash", args...).CombinedOutput()
-	if exit, ok := err.(*exec.ExitError); !ok || exit.ExitCode() != 7 {
-		t.Fatalf("lost Firefox exit status: %v, %s", err, output)
+	profile := filepath.Join(guest, "etc/profile.d/workshop-host-audio.sh")
+	if err := os.WriteFile(profile, []byte("old profile"), 0644); err != nil {
+		t.Fatal(err)
 	}
-	want := "unix:path=" + socket + "\n--no-remote\nargument with spaces\n$(not a shell command)\n"
-	if string(output) != want {
-		t.Fatalf("changed Firefox bus or arguments: %q", output)
+
+	// Run the unchanged hook. Only the tools that touch the filesystem
+	// redirect their writes into the disposable root.
+	for name, script := range map[string]string{
+		"apt-get":   "#!/bin/sh\nexit 0\n",
+		"systemctl": "#!/bin/sh\nexit 0\n",
+		"install": `#!/bin/sh
+[ "$#" = 4 ] && [ "$1" = -m ] || exit 87
+case "$4" in
+  /usr/*|/etc/*) exec "$SETUP_TEST_INSTALL" "$1" "$2" "$3" "$SETUP_TEST_ROOT$4";;
+  *) exit 87;;
+esac
+`,
+		"rm": `#!/bin/sh
+[ "$#" = 2 ] && [ "$1" = -f ] && [ "$2" = /etc/profile.d/workshop-host-audio.sh ] || exit 88
+exec "$SETUP_TEST_REMOVE" "$1" "$SETUP_TEST_ROOT$2"
+`,
+		"dpkg-divert": `#!/bin/sh
+exec "$SETUP_TEST_DIVERT" --root "$SETUP_TEST_ROOT" "$@"
+`,
+	} {
+		if err := os.WriteFile(filepath.Join(tools, name), []byte(script), 0700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("SDK", sdk)
+	t.Setenv("PATH", tools)
+	t.Setenv("SETUP_TEST_ROOT", guest)
+	t.Setenv("SETUP_TEST_INSTALL", install)
+	t.Setenv("SETUP_TEST_REMOVE", remove)
+	t.Setenv("SETUP_TEST_DIVERT", divert)
+
+	for range 2 {
+		cmd := exec.Command("/bin/bash", filepath.Join(sdk, "hooks/setup-base"))
+		if output, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("run setup: %v, %s", err, output)
+		}
+		for _, tc := range []struct {
+			source, target string
+			mode           os.FileMode
+		}{
+			{"bin/workshop-desktop", "usr/local/bin/workshop-desktop", 0755},
+			{"bin/workshop-host-audio", "usr/local/bin/workshop-host-audio", 0755},
+			{"bin/xdg-open", "usr/bin/xdg-open", 0755},
+			{"systemd/workshop-pipewire-pulse.service", "etc/systemd/user/workshop-pipewire-pulse.service", 0644},
+		} {
+			want, err := os.ReadFile(filepath.Join(sdk, tc.source))
+			if err != nil {
+				t.Fatal(err)
+			}
+			target := filepath.Join(guest, tc.target)
+			got, err := os.ReadFile(target)
+			if err != nil || !bytes.Equal(got, want) {
+				t.Fatalf("installed %s does not match staged %s: %v", tc.target, tc.source, err)
+			}
+			info, err := os.Stat(target)
+			if err != nil || info.Mode().Perm() != tc.mode {
+				t.Fatalf("installed %s has wrong mode: %v, %v", tc.target, info, err)
+			}
+		}
+		if got, err := os.ReadFile(opener + ".distrib"); err != nil || string(got) != packagedOpener {
+			t.Fatalf("did not preserve the packaged opener: %q, %v", got, err)
+		}
+		if _, err := os.Stat(profile); !os.IsNotExist(err) {
+			t.Fatalf("old profile remains: %v", err)
+		}
+	}
+	output, err := exec.Command(divert, "--root", guest, "--truename", "/usr/bin/xdg-open").CombinedOutput()
+	if err != nil || string(output) != "/usr/bin/xdg-open.distrib\n" {
+		t.Fatalf("package diversion missing: %q, %v", output, err)
 	}
 }
