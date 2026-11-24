@@ -25,7 +25,7 @@ esac
 # Check the scheme and reject literal whitespace and control characters.
 scheme=${1%%:*}
 case "$1" in
-    *[[:space:][:cntrl:]]*|*:|'')
+    *[[:space:][:cntrl:]]*)
         printf '%s\n' "$usage" >&2
         exit 1
         ;;
@@ -36,7 +36,7 @@ case "$scheme" in
         exit 1
         ;;
 esac
-if [ "$scheme" = "$1" ]; then
+if [ "$scheme" = "$1" ] || [ "${1#*:}" = "" ]; then
     printf '%s\n' "$usage" >&2
     exit 1
 fi
