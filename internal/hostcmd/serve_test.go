@@ -3,10 +3,11 @@ package hostcmd
 import (
 	"context"
 	"errors"
-	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
+
 	"workshop-desktop/internal/host"
 )
 
@@ -29,7 +30,7 @@ func TestSelectHandlers(t *testing.T) {
 			for _, h := range selected {
 				names = append(names, h.name)
 			}
-			if !reflect.DeepEqual(names, tc.want) {
+			if !slices.Equal(names, tc.want) {
 				t.Fatalf("got %v, want %v", names, tc.want)
 			}
 		})
@@ -53,7 +54,7 @@ func TestServeAcquiresAllLocksBeforeStarting(t *testing.T) {
 		started <- struct{}{}
 		return nil
 	}
-	if err := runHandlers(context.Background(), p, []handler{{"dbus", run}, {"pipewire", run}}); err == nil {
+	if err := runHandlers(t.Context(), p, []handler{{"dbus", run}, {"pipewire", run}}); err == nil {
 		t.Fatal("ignored lock conflict")
 	}
 	if len(started) != 0 {
@@ -71,7 +72,7 @@ func TestServeFailureCancelsAndWaitsForSiblingCleanup(t *testing.T) {
 	for _, unexpectedExit := range []bool{false, true} {
 		t.Run(map[bool]string{false: "error", true: "unexpected exit"}[unexpectedExit], func(t *testing.T) {
 			p := host.Project{Root: t.TempDir()}
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 			defer cancel()
 			started := make(chan struct{})
 			cleaned := make(chan struct{})
@@ -130,7 +131,7 @@ func TestServeCancellationOnlyLocksSelectedHandlers(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = lock.Close() }()
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 	started := make(chan struct{})
 	result := make(chan error, 1)

@@ -17,6 +17,7 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
 	"workshop-desktop/internal/logging"
 )
 
@@ -135,7 +136,7 @@ func TestLoadResolvesProjectAndSecuresEndpointDirectories(t *testing.T) {
 	}
 }
 
-func startProcessChild(t *testing.T, ctx context.Context, mode string, configure func(*exec.Cmd)) *Process {
+func startProcessChild(ctx context.Context, t *testing.T, mode string, configure func(*exec.Cmd)) *Process {
 	t.Helper()
 	p, err := Start(ctx, func(cmd *exec.Cmd) {
 		cmd.Env = append(os.Environ(), "WORKSHOP_TEST_CHILD="+mode)
@@ -151,12 +152,12 @@ func startProcessChild(t *testing.T, ctx context.Context, mode string, configure
 }
 
 func TestProcessObservesParentCancellation(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 	reader, writer := io.Pipe()
 	defer func() { _ = reader.Close() }()
 	defer func() { _ = writer.Close() }()
-	p := startProcessChild(t, ctx, "wait", func(cmd *exec.Cmd) { cmd.Stdout = writer })
+	p := startProcessChild(ctx, t, "wait", func(cmd *exec.Cmd) { cmd.Stdout = writer })
 
 	ready := make(chan string, 1)
 	go func() {
@@ -181,8 +182,8 @@ func TestProcessObservesParentCancellation(t *testing.T) {
 }
 
 func TestProcessUnexpectedSuccess(t *testing.T) {
-	p := startProcessChild(t, context.Background(), "success", nil)
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	p := startProcessChild(t.Context(), t, "success", nil)
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 	if err := p.Wait(ctx); err == nil || !strings.Contains(err.Error(), "exited unexpectedly") {
 		t.Fatalf("wanted unexpected successful exit, got %v", err)
@@ -190,13 +191,13 @@ func TestProcessUnexpectedSuccess(t *testing.T) {
 }
 
 func TestWaitSocketRequiresSocket(t *testing.T) {
-	p := startProcessChild(t, context.Background(), "wait", nil)
+	p := startProcessChild(t.Context(), t, "wait", nil)
 	path := filepath.Join(t.TempDir(), "bus")
 	if err := os.WriteFile(path, nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	// Give WaitSocket time to observe the regular file before the caller deadline.
-	ctx, cancel := context.WithTimeout(context.Background(), 250*time.Millisecond)
+	ctx, cancel := context.WithTimeout(t.Context(), 250*time.Millisecond)
 	defer cancel()
 	if err := p.WaitSocket(ctx, path); !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("regular file readiness: %v", err)
@@ -213,7 +214,7 @@ func TestWaitSocketRequiresSocket(t *testing.T) {
 	}
 	defer func() { _ = socket.Close() }()
 
-	ctx, cancel = context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel = context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 	if err := p.WaitSocket(ctx, path); err != nil {
 		t.Fatal(err)
@@ -221,9 +222,9 @@ func TestWaitSocketRequiresSocket(t *testing.T) {
 }
 
 func TestWaitSocketReportsEarlyExit(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
-	child := startProcessChild(t, context.Background(), "failure", nil)
+	child := startProcessChild(t.Context(), t, "failure", nil)
 	if err := child.WaitSocket(ctx, filepath.Join(t.TempDir(), "missing")); err == nil ||
 		!strings.Contains(err.Error(), "exited before readiness: exit status 4") {
 		t.Fatalf("missing early exit status: %v", err)
@@ -252,8 +253,8 @@ func TestProcessChild(t *testing.T) {
 func TestProcessOutputUsesCommandLogger(t *testing.T) {
 	var output bytes.Buffer
 	logger := slog.New(slog.NewJSONHandler(&output, nil)).With("handler", "test")
-	ctx := logging.WithLogger(context.Background(), logger)
-	p := startProcessChild(t, ctx, "output", nil)
+	ctx := logging.WithLogger(t.Context(), logger)
+	p := startProcessChild(ctx, t, "output", nil)
 	select {
 	case <-p.done:
 	case <-time.After(5 * time.Second):

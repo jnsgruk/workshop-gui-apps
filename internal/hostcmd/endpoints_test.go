@@ -6,14 +6,16 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"net"
 	"os"
 	"path/filepath"
-	"reflect"
+	"slices"
 	"strings"
 	"syscall"
 	"testing"
 	"time"
+
 	"workshop-desktop/internal/host"
 	"workshop-desktop/internal/logging"
 )
@@ -38,9 +40,9 @@ type endpointRun struct {
 	err    error
 }
 
-func startEndpoint(t *testing.T, project host.Project, serve func(context.Context, host.Project) error) *endpointRun {
+func startEndpoint(ctx context.Context, t *testing.T, project host.Project, serve func(context.Context, host.Project) error) *endpointRun {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	run := &endpointRun{cancel: cancel, done: make(chan struct{}), logs: make(endpointLogs, 32)}
 	ctx = logging.WithLogger(ctx, slog.New(slog.NewJSONHandler(run.logs, nil)))
 	go func() {
@@ -159,7 +161,7 @@ func TestDBusProxyWaitsForSocketAndCleansUp(t *testing.T) {
 	stale.SetUnlinkOnClose(false)
 	_ = stale.Close()
 
-	run := startEndpoint(t, p, runDBus)
+	run := startEndpoint(t.Context(), t, p, runDBus)
 	run.waitForLogs(t, "proxy created a regular file")
 	select {
 	case msg := <-run.logs:
@@ -181,7 +183,7 @@ func TestDBusProxyWaitsForSocketAndCleansUp(t *testing.T) {
 		"--talk=org.freedesktop.portal.Documents",
 		"--talk=org.freedesktop.secrets",
 	}
-	if args := recordedEndpointArgs(t, p); !reflect.DeepEqual(args, want) {
+	if args := recordedEndpointArgs(t, p); !slices.Equal(args, want) {
 		t.Fatalf("wrong proxy arguments: %q; want %q", args, want)
 	}
 	run.cancel()
@@ -203,7 +205,7 @@ func TestPipeWirePublishesFirstLineAndCleansUp(t *testing.T) {
 		t.Fatal(err)
 	}
 	_ = probe.Close()
-	run := startEndpoint(t, p, runPipeWire)
+	run := startEndpoint(t.Context(), t, p, runPipeWire)
 	run.waitForLogs(t, "PipeWire ready", "pw-container diagnostic")
 	socket := filepath.Join(p.Root, "pipewire", "pipewire-0")
 	assertEndpointSocket(t, socket)
@@ -212,7 +214,7 @@ func TestPipeWirePublishesFirstLineAndCleansUp(t *testing.T) {
 	}
 
 	args := recordedEndpointArgs(t, p)
-	if len(args) != 4 || !reflect.DeepEqual(args[:3], []string{"-oL", "pw-container", "-P"}) {
+	if len(args) != 4 || !slices.Equal(args[:3], []string{"-oL", "pw-container", "-P"}) {
 		t.Fatalf("wrong pw-container arguments: %q", args)
 	}
 	want := map[string]string{
@@ -220,7 +222,7 @@ func TestPipeWirePublishesFirstLineAndCleansUp(t *testing.T) {
 		"pipewire.sec.instance-id": "workshop-" + p.ID,
 	}
 	var properties map[string]string
-	if err := json.Unmarshal([]byte(args[3]), &properties); err != nil || !reflect.DeepEqual(properties, want) {
+	if err := json.Unmarshal([]byte(args[3]), &properties); err != nil || !maps.Equal(properties, want) {
 		t.Fatalf("wrong pw-container properties: %q, %v", properties, err)
 	}
 	run.cancel()
@@ -244,7 +246,7 @@ func TestEndpointsReportEarlyExit(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			p := endpointProject(t)
 			t.Setenv("ENDPOINT_TEST_EXIT", "4")
-			err := startEndpoint(t, p, tc.serve).wait(t)
+			err := startEndpoint(t.Context(), t, p, tc.serve).wait(t)
 			if err == nil || !strings.Contains(err.Error(), tc.message) {
 				t.Fatalf("missing early exit error: %v", err)
 			}
@@ -263,7 +265,7 @@ func TestPipeWireReportsInvalidAnnouncements(t *testing.T) {
 		t.Run(tc.mode, func(t *testing.T) {
 			p := endpointProject(t)
 			t.Setenv("ENDPOINT_TEST_ANNOUNCEMENT", tc.mode)
-			err := startEndpoint(t, p, runPipeWire).wait(t)
+			err := startEndpoint(t.Context(), t, p, runPipeWire).wait(t)
 			if err == nil || !strings.Contains(err.Error(), tc.message) {
 				t.Fatalf("wanted %q, got %v", tc.message, err)
 			}
@@ -314,7 +316,7 @@ func TestEndpointChild(t *testing.T) {
 		_ = file.Close()
 		fmt.Fprintln(os.Stderr, "proxy created a regular file")
 
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 		defer cancel()
 		tick := time.NewTicker(10 * time.Millisecond)
 		defer tick.Stop()

@@ -13,6 +13,7 @@ import (
 	"regexp"
 	"strings"
 	"syscall"
+
 	"workshop-desktop/internal/logging"
 )
 
@@ -78,7 +79,7 @@ func privateDirectory(path string) error {
 }
 
 // Lock is per capability: serving one capability does not require the others.
-// connect takes all three locks before changing mounts.
+// connect takes both locks before changing mounts.
 func (p Project) Lock(capability string) (*os.File, error) {
 	fd, err := syscall.Open(filepath.Join(p.Root, capability+".lock"), syscall.O_CREAT|syscall.O_RDWR|syscall.O_NOFOLLOW|syscall.O_CLOEXEC, 0o600)
 	if err != nil {
@@ -88,7 +89,10 @@ func (p Project) Lock(capability string) (*os.File, error) {
 	f := os.NewFile(uintptr(fd), capability+".lock")
 	if err := syscall.Flock(fd, syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
 		_ = f.Close()
-		return nil, fmt.Errorf("%s helper already running; stop it before reconnecting", capability)
+		if errors.Is(err, syscall.EWOULDBLOCK) {
+			return nil, fmt.Errorf("%s helper already running; stop it before reconnecting", capability)
+		}
+		return nil, fmt.Errorf("lock %s capability: %w", capability, err)
 	}
 
 	return f, nil

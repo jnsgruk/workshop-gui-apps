@@ -28,6 +28,17 @@ then restart the helpers and relaunch your apps. Go-only host changes take
 effect after rebuilding and restarting the host helpers. Refresh the guest
 when it needs the updated shared binary.
 
+### Go style
+
+Separate standard-library imports from project imports with a blank line.
+Handle errors according to their cause. Preserve the underlying error when
+adding context, and distinguish expected conditions from unexpected failures.
+
+Use the innermost test or subtest's `t.Context()` for test-scoped work. Pass
+context explicitly as the first parameter to helpers that need it. Prefer
+`slices.Equal` and `maps.Equal` for simple collection comparisons when nil and
+empty collections are equivalent.
+
 ### Host subprocesses and logging
 
 Use context-aware `log/slog` calls for host diagnostics. Keep CLI help on its

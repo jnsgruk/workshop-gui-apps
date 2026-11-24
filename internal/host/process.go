@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"syscall"
 	"time"
+
 	"workshop-desktop/internal/logging"
 )
 

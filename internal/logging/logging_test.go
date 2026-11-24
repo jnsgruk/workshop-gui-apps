@@ -2,7 +2,6 @@ package logging
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"log/slog"
 	"strings"
@@ -12,7 +11,7 @@ import (
 func TestWriterPreservesSplitLinesAndFlushesTrailingOutput(t *testing.T) {
 	var output bytes.Buffer
 	logger := slog.New(slog.NewJSONHandler(&output, nil)).With("process", "child")
-	ctx := WithLogger(context.Background(), logger)
+	ctx := WithLogger(t.Context(), logger)
 	w := &Writer{Context: ctx, Logger: Logger(ctx), Level: slog.LevelWarn}
 	for _, part := range []string{"fir", "st\r\nsecond\ntrai", "ling"} {
 		if n, err := w.Write([]byte(part)); err != nil || n != len(part) {

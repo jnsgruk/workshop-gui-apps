@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+
 	"workshop-desktop/internal/host"
 )
 
@@ -69,7 +70,7 @@ fi
 			if err := os.WriteFile(log, nil, 0o600); err != nil {
 				t.Fatal(err)
 			}
-			err := connect(context.Background(), p, "apps")
+			err := connect(t.Context(), p, "apps")
 			if tc.status == 0 {
 				if err != nil {
 					t.Fatal(err)
@@ -114,7 +115,7 @@ printf '%s\n' "$*" >> "$CONNECT_TEST_LOG"
 				t.Fatal(err)
 			}
 			defer func() { _ = lock.Close() }()
-			if err := connect(context.Background(), p, "apps"); err == nil || !strings.Contains(err.Error(), name+" helper already running") {
+			if err := connect(t.Context(), p, "apps"); err == nil || !strings.Contains(err.Error(), name+" helper already running") {
 				t.Fatalf("connect did not report %s lock contention: %v", name, err)
 			}
 			if _, err := os.Stat(calls); !os.IsNotExist(err) {
