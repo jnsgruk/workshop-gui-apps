@@ -1,6 +1,6 @@
 # Desktop integration in Workshop
 
-[Setup and commands](../README.md) · [Capability boundaries](#capability-boundaries) · [Host and guest lifecycle](#host-and-guest-lifecycle) · [Guest SDK audit](#guest-sdk-audit) · [Native interface proposal](#native-interface-proposal) · [Live acceptance checks](#live-acceptance-checks)
+[Setup and commands](../README.md) · [Capability boundaries](#capability-boundaries) · [Host and guest lifecycle](#host-and-guest-lifecycle) · [Guest SDK setup](#guest-sdk-setup) · [Live acceptance checks](#live-acceptance-checks)
 
 The desktop application runs as the unprivileged Workshop user. Firefox also
 runs under Snap confinement. Display, desktop services, device access, audio,
@@ -52,36 +52,32 @@ The Workshop camera interface exposes matching `/dev/video*` and
 devices at workshop scope. The guest user needs device-node access, Snap needs
 `firefox:camera`, and Firefox prompts each website for permission.
 
-A future portal-based camera path would need portal authorization and a
-PipeWire stream. The existing D-Bus service grant supplies access to portal
-calls.
-
 [Camera declaration](../.workshop/firefox/sdk.yaml) · [Snap connections](../.workshop/firefox/hooks/setup-base) · [Workshop camera interface](https://ubuntu.com/workshop/docs/explanation/interfaces/camera-interface/)
 
 ### Audio
 
 The host helper keeps `pw-container` alive and publishes its security-context
 socket using `rename`. The source socket and host mount directory need to
-share a filesystem. The directory mount preserves the file descriptor passing
+share a filesystem. The host mount directory is the `pipewire/` subdirectory
+of the [private host root](#host-and-guest-lifecycle). The directory mount preserves the file descriptor passing
 required by the PipeWire native protocol. The helper labels the context
 `org.mozilla.firefox` and supplies an instance ID. These labels describe the
 shared connection, and multiple guest applications can use it through the same
 compatibility server.
 
 The guest's `workshop-pipewire-pulse.service` connects to the host PipeWire
-graph. Its environment and the client wrapper use these settings.
+graph. The service and guest launcher use these settings.
 
 | Component | Setting |
 | --- | --- |
 | Guest service | `PIPEWIRE_REMOTE=/mnt/workshop-host/pipewire/pipewire-0` |
 | Guest service | `XDG_RUNTIME_DIR=/run/user/1000` |
 | Guest service | `DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus` |
-| Client wrapper | `PULSE_SERVER=unix:/run/user/1000/pulse/native` |
+| Guest launcher | `PULSE_SERVER=unix:/run/user/1000/pulse/native` |
 
 The host session manager controls device access and routing. Playback,
-microphone capture, and speaker-monitor capture are distinct permissions for
-a native interface to enforce. A source ending in `.monitor` captures speaker
-output. Website consent applies inside Firefox.
+microphone capture, and speaker-monitor capture are distinct permissions. A
+source ending in `.monitor` captures speaker output. Website consent applies inside Firefox.
 
 [Host helper](../internal/hostcmd/pipewire.go) · [Guest service](../.workshop/host-integration/systemd/workshop-pipewire-pulse.service) · [Audio wrapper](../.workshop/host-integration/bin/workshop-host-audio) · [pw-container](https://docs.pipewire.org/page_man_pw-container_1.html) · [PipeWire native protocol](https://docs.pipewire.org/page_native_protocol.html) · [WirePlumber client access](https://pipewire.pages.freedesktop.org/wireplumber/policies/client_access.html)
 
@@ -102,8 +98,7 @@ check identifies the socket peer at user scope.
 The wrapper handles PATH and absolute-path calls to the guest utility. Toolkit
 calls, `gio open`, direct D-Bus calls, portals, and Snap-bundled utilities can
 bypass it. The portal offers `OpenURI` for non-file URIs and `OpenFile` for file
-descriptors. A native broker needs a shared-file translation or export
-contract, parent-window activation, and a way to report request results.
+descriptors.
 
 [Host server](../internal/opener/opener.go) · [Guest client](../internal/opener/client.go) · [Guest command](../internal/guestcmd/open.go) · [Portal specification](https://flatpak.github.io/xdg-desktop-portal/docs/doc-org.freedesktop.portal.OpenURI.html)
 
@@ -131,16 +126,20 @@ and GID 1000 and allow clients to connect to the sockets. Service policy
 controls the operations available over those connections. Mounting under
 `/mnt` keeps the endpoints outside the guest's boot-managed runtime directory.
 
-Each handler owns its own lock and cleanup. [Grouped serving](../internal/hostcmd/serve.go)
-stops all selected handlers when one fails. On shutdown, D-Bus and PipeWire
+Each handler reports readiness and owns its own lock and cleanup.
+[Grouped serving](../internal/hostcmd/serve.go) runs all handlers by default.
+`--only` accepts a comma-separated list of handler names and runs each named
+handler once. A filtered server and individual helpers can run together when
+their capabilities do not overlap. If one handler fails, the server stops the
+others and waits for cleanup. On shutdown, D-Bus and PipeWire
 children receive SIGTERM and are forcibly terminated if they exceed the wait
 limit. Reconnect after the host clears `/tmp` and restart affected guest clients
-as needed. Firefox profiles from the former `firefox` and `appimage` workshops
-require manual migration into `apps`.
+as needed. Runtime diagnostics and child-process output use Go's `slog` text
+handler on stderr. Help and version output use plain text.
 
 [Host dispatch](../internal/hostcmd/host.go) · [Host lifecycle utilities](../internal/host) · [Development build](../.workshop/dev.yaml)
 
-## Guest SDK audit
+## Guest SDK setup
 
 The [apps workshop](../.workshop/apps.yaml) composes the shared host-integration
 SDK with `firefox`, `any`, the Codex CLI, and
@@ -149,8 +148,9 @@ desktop and GPU plugs and groups setup by capability.
 
 | Shared capability | Guest setup |
 | --- | --- |
-| D-Bus | The SDK declares the filtered session-bus mount. Application-specific bus selection lives in the launchers. |
-| Audio | The setup hook installs `dbus-user-session` and `pipewire-pulse`. It installs a compatibility service that starts on demand through `workshop-host-audio COMMAND`, with systemd handling retries. It masks distribution PipeWire, Pulse socket activation, and WirePlumber units to prevent competing services. |
+| Wayland | The SDK installs `wayland-info` so the Go launcher can verify that the display is reachable before starting an app. |
+| D-Bus | The SDK declares the filtered session-bus mount. App launchers select the host or local session bus through `guest launch`. |
+| Audio | The setup hook installs `dbus-user-session` and `pipewire-pulse`. It installs a compatibility service that starts on demand through the Go guest launcher, with systemd handling retries. It masks distribution PipeWire, Pulse socket activation, and WirePlumber units to prevent competing services. |
 | Host opening | The setup hook installs the staged static tool and wrapper. `dpkg-divert` preserves the packaged opener at `/usr/bin/xdg-open.distrib` when present and diverts future installs. |
 
 The shared hook checks for the staged binary before changing the guest.
@@ -160,19 +160,25 @@ The [`any` setup hook](../.workshop/any/hooks/setup-base) installs the
 application libraries and resolves the latest Linux amd64 AppImage from the
 nightly manifest. It downloads to a temporary file in `/opt/any` and renames
 it to `/opt/any/Any.AppImage` after a successful download. The launcher uses
-that installed path on every run.
+that installed path on every run. An incremental refresh can reuse the SDK
+without downloading a new build. The launcher forwards arguments and uses
+`--appimage-extract-and-run` to run without FUSE and leaves the application’s
+sandbox defaults in effect.
 
-Both app actions use `workshop-host-audio`. The Firefox action invokes it
-before the Firefox launcher, while the AppImage launcher invokes it after
-validating the Wayland connection and shared sockets.
-The install hook enables snapd, waits for seeding, and installs Firefox from
+Both app actions use `workshop-desktop guest launch`. Any selects
+`--session-bus=host`. Firefox selects `--session-bus=local` so Snap can
+create its systemd scope and then switches to the filtered host bus inside
+confinement. The launch command requires the Wayland connection and the
+mounted PipeWire socket. The compatibility command `workshop-host-audio`
+starts the audio service and sets `PULSE_SERVER` for its command.
+
+The Firefox setup hook enables snapd, waits for seeding, and installs Firefox from
 `latest/stable` if absent. An existing install keeps its channel. The desktop
 and Wayland plugs grant access to desktop resources and the display socket.
 Workshop GPU and Snap `opengl` cover rendering across both confinement
 boundaries. Snap `audio-playback` and `audio-record` declare the intended
-capabilities while the host session manager controls actual access. The
-`desktop-legacy` grant remains provisional pending live checks against the
-installed Firefox and snapd versions.
+capabilities while the host session manager controls actual access. The setup hook
+also connects the Snap `desktop-legacy` plug.
 
 The Firefox SDK owns the late bind mount and delayed bus selection. After
 `/run/user/1000` exists, a prerequisite unit creates the Snap runtime parent
@@ -181,75 +187,32 @@ alone would create a root-owned parent. The launcher preserves arguments and
 uses `--no-remote` for instance isolation. The fixed UID matches the mount
 ownership, systemd runtime, and Snap policy path.
 
-The audit removed explicit installs of `xdg-utils`, `dbus-bin`, `v4l-utils`,
-`pulseaudio-utils`, `pipewire-bin`, and extra fonts from the Firefox stack.
-The opener wrapper supplies the needed entry point, and `pipewire-pulse`
-brings its package dependencies. The audit also removed the host system-bus
-proxy, Firefox name-ownership grants, the X11 fallback, and
-startup diagnostic probes. The audio wrapper now starts its service on demand
-and sets `PULSE_SERVER` for the application. Unit reloads occur at installation
-or refresh.
-
 [Shared SDK setup hook](../.workshop/host-integration/hooks/setup-base) · [Firefox hook](../.workshop/firefox/hooks/setup-base) · [Snap desktop policy](https://raw.githubusercontent.com/canonical/snapd/master/interfaces/builtin/desktop.go) · [Snap legacy desktop policy](https://raw.githubusercontent.com/canonical/snapd/master/interfaces/builtin/desktop_legacy.go) · [pipewire-pulse](https://docs.pipewire.org/page_man_pipewire-pulse_1.html)
 
 ### Any state across refreshes
 
-Static inspection of nightly `0.1.36-nightly.20261124.2` found the Tauri bundle
-identifier `io.anyproto.any.nightly`, the `ANY_DATA_DIR` override, and a
-Linux Secret Service backend. The Workshop SDK currently declares no Any
-data mounts.
+The Any SDK declares three private, writable mounts for data and settings
+in the `apps` workshop.
 
-| State | Path to verify for a private, writable mount |
+| State | Guest mount target |
 | --- | --- |
-| Backend database, device identity, local records, and file bytes | Mount the effective `ANY_DATA_DIR`. The documented backend default is `/home/workshop/.any`. Confirm the desktop launcher uses it, or explicitly configure the path after migrating existing data. |
-| Desktop and WebKit profile | With default XDG paths, Tauri points to `/home/workshop/.local/share/io.anyproto.any.nightly` for local data. Check `/home/workshop/.config/io.anyproto.any.nightly` for settings written separately. These paths are inferred from the bundle identifier and Tauri defaults. |
-| Backend config override | Preserve `/home/workshop/.config/any` if it contains a custom backend config. |
+| Backend database, device identity, local records, and attachments | `/home/workshop/.any-nightly` |
+| Desktop application data and WebKit profile | `/home/workshop/.local/share/io.anyproto.any.nightly` |
+| Desktop configuration | `/home/workshop/.config/io.anyproto.any.nightly` |
 
-[Any data directory](https://docs.any.org/operations/data-dir.html) · [Any configuration](https://docs.any.org/reference/config.html) · [Tauri path resolution](https://tauri.app/reference/javascript/api/namespacepath/#applocaldatadir) · [Tauri WebView data directory](https://github.com/tauri-apps/tauri/blob/dev/crates/tauri/src/manager/webview.rs)
+Workshop provisions host-backed directories for the mount plugs and keeps
+their connections across refreshes. If you use custom `ANY_DATA_DIR` or XDG
+paths, set the SDK mount targets to the paths used by Any. Remembered sign-in
+uses the host Secret Service. Keep the same host keyring available when you
+relaunch Any.
 
-Remembered sign-in uses the host's Secret Service over the filtered session
-bus. The host graphical session needs a running or activatable Secret Service
-provider and a keyring that Any can unlock. After updating the host helper,
-restart it and relaunch Any. Sign in once if prompted so Any can save the
-phrase. The SDK reinstalls
-`/opt/any/Any.AppImage` when its setup hook runs. The executable does not need
-a data mount. Workshop preserves valid mount connections across refreshes and
-can reuse unchanged SDKs without rerunning setup.
-
-[Managed Any accounts](https://docs.any.org/auth/accounts.html) · [Workshop refresh and connections](https://ubuntu.com/workshop/docs/explanation/workshops/concepts/#connections-across-refresh-and-restore)
-
-On a Wayland host, use a disposable profile to check the actual paths after
-changing a setting and creating a device-local record and attachment. Shut Any
-down, preserve any existing data before mounting over its directories, and
-verify the record, attachment, setting, and device identity after a refresh.
-Live validation requires a Workshop host and a Wayland session.
-
-## Native interface proposal
-
-Workshop could manage endpoint creation, mount ownership, guest environment,
-confinement adapters, readiness checks, reconnect, and cleanup. Each grant
-would define its scope and revocation behavior. The current sockets and
-compatibility server mostly operate at workshop scope. App ID strings and Unix
-UIDs alone cannot establish per-app isolation.
-
-| Capability | Proposed contract |
-| --- | --- |
-| Desktop services | Declare session and system service grants individually, preserve local buses, and publish managed endpoints for app launchers. Treat notifications, portals, and secrets as distinct grants. |
-| Notifications | Attribute messages to the workshop or verified app, transfer icons safely, route actions, support update and close, and revoke permission. |
-| Camera | Offer explicit direct device grants and explore selected-device or portal capture with host consent, hotplug, active-use visibility, and tested disconnect behavior. |
-| Audio | Manage the security context and compatibility service. Define separate playback, microphone, and monitor capture grants and their scope. |
-| Host opening | Broker requests from utility, toolkit, and portal callers. Define URI policy, file translation or export, activation, failures, and asynchronous results. |
-
-Moving mount and session lifecycle into Workshop would let a supported
-confinement adapter handle the runtime paths and bus-switch timing currently
-owned by the Firefox SDK. The proposed interfaces still need a decision on
-whether each grant applies to the workshop, an SDK, or a verified application.
+[Workshop SDK mounts](https://ubuntu.com/workshop/docs/reference/sdks/#mount-interface) · [Connections across refresh and restore](https://ubuntu.com/workshop/docs/explanation/workshops/concepts/#connections-across-refresh-and-restore)
 
 ## Live acceptance checks
 
-The [automated tests and validation history](../README.md#automated-tests-and-limits)
-cover the helpers and wrappers. Live integration in the `apps` workshop
-remains unverified.
+Run these checks in the connected `apps` workshop with the host handlers
+running. The [automated tests](../README.md#automated-tests-and-limits) cover
+the helpers and wrappers.
 
 | Capability | What to verify in a live session |
 | --- | --- |
