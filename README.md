@@ -1,14 +1,14 @@
 # Desktop apps in Workshop
 
-A Firefox-only, Wayland-only experiment in sharing selected host desktop services
+A Wayland-only experiment in sharing selected host desktop services
 with a Workshop container. It exercises a filtered session D-Bus connection,
 PipeWire audio through a security-context socket, Workshop's desktop and camera
 interfaces, and a guest `xdg-open` client that forwards requests to the host.
 
-The [integration document](desktop-integration.html) describes the namespace
-boundaries, guest SDK audit, and proposed native mediation. Automated tests cover
-the helpers and wrappers; they do not establish that Firefox's desktop, portal,
-audio, or camera integration works end to end.
+The [desktop integration guide](docs/desktop-integration.md) covers the
+capability boundaries, host and guest lifecycle, and guest SDK audit. It also
+records the [native interface proposal](docs/desktop-integration.md#native-interface-proposal)
+and the [live acceptance checks](docs/desktop-integration.md#live-acceptance-checks).
 
 ## Build and run
 
