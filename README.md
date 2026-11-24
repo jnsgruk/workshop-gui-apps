@@ -101,7 +101,7 @@ before refreshing an installation with local data.
 After connecting `apps` and starting the host handlers, run:
 
 ```sh
-workshop run apps -- appimage
+workshop run apps -- any
 workshop run apps -- codex
 workshop exec apps -- codex  # Codex CLI
 ```
@@ -110,7 +110,7 @@ The [Codex desktop SDK](.workshop/codex-desktop) installs the `chatgpt` package
 from OpenAI’s signed APT repository. The `codex` action starts ChatGPT desktop.
 See the [official Linux desktop instructions](https://learn.chatgpt.com/docs/linux/linux-app).
 
-Arguments after `workshop run apps -- appimage` are passed to the application.
+Arguments after `workshop run apps -- any` are passed to the application.
 The launcher validates the Wayland connection and requires host D-Bus and
 PipeWire sockets. It selects Wayland explicitly, uses
 `--appimage-extract-and-run` to run without a FUSE device, and retains the

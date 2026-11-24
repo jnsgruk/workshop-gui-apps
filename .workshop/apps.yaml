@@ -12,7 +12,7 @@ actions:
   firefox: |
     exec /usr/local/bin/workshop-host-audio /usr/local/bin/workshop-firefox "$@"
 
-  appimage: |
+  any: |
     exec /usr/local/bin/workshop-appimage "$@"
 
   codex: |
