@@ -5,7 +5,11 @@ sdks:
   - name: codex
   - name: project-host-integration
   - name: project-firefox
+  - name: project-any
 
 actions:
   firefox: |
     exec /usr/local/bin/workshop-host-audio /usr/local/bin/workshop-firefox "$@"
+
+  appimage: |
+    exec /usr/local/bin/workshop-appimage "$@"

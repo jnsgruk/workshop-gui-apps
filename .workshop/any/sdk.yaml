@@ -1,0 +1,3 @@
+name: any
+base: ubuntu@24.04
+summary: Any nightly AppImage with Wayland and host desktop services

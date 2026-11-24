@@ -1,0 +1,45 @@
+#!/bin/bash
+set -euo pipefail
+
+if [ "$(dpkg --print-architecture)" != amd64 ]; then
+  echo 'The Any nightly AppImage requires an amd64 guest.' >&2
+  exit 1
+fi
+
+export DEBIAN_FRONTEND=noninteractive
+apt-get update
+apt-get install -y --no-install-recommends \
+  ca-certificates curl jq \
+  libgtk-3-0t64 libnss3 libnspr4 libasound2t64 libgbm1 \
+  libxss1 libxtst6 libatk-bridge2.0-0t64 libwebkit2gtk-4.1-0 \
+  wayland-utils
+
+nightly_base=https://s3.eu-central-1.amazonaws.com/anytype-anyui-nightly/desktop/any
+if ! url=$(curl --fail --silent --show-error --retry 3 --connect-timeout 15 \
+  "$nightly_base/latest.json" |
+  jq -er '.platforms["linux-x86_64"].url | strings'); then
+  echo 'Could not read the amd64 AppImage URL from the Any nightly manifest.' >&2
+  exit 1
+fi
+case "$url" in
+  "$nightly_base/"*/linux-x86_64-*_amd64.AppImage) ;;
+  *)
+    echo 'The Any nightly manifest returned an unexpected AppImage URL.' >&2
+    exit 1
+    ;;
+esac
+
+# Download next to the installed image so a failed refresh leaves it intact.
+install -d -m 0755 /opt/any
+download=$(mktemp /opt/any/.Any.AppImage.XXXXXXXX)
+trap 'rm -f -- "$download"' EXIT
+curl --fail --silent --show-error --retry 3 --connect-timeout 15 \
+  --output "$download" "$url"
+if [ ! -s "$download" ]; then
+  echo 'The Any nightly AppImage download was empty.' >&2
+  exit 1
+fi
+chmod 0755 "$download"
+mv -fT -- "$download" /opt/any/Any.AppImage
+
+install -m 0755 "$SDK/bin/workshop-appimage" /usr/local/bin/workshop-appimage
