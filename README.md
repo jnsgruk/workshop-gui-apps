@@ -1,7 +1,9 @@
 # Desktop apps in Workshop
 
 A Wayland-only experiment in sharing selected host desktop services
-with a Workshop container. It exercises a filtered session D-Bus connection,
+with a Workshop container. Use `dev` to build and test the bridge and `apps`
+to run Firefox, Any nightly, and Codex. The shared desktop
+integration provides a filtered session D-Bus connection,
 PipeWire audio through a security-context socket, Workshop's desktop and camera
 interfaces, and a guest `xdg-open` client that forwards requests to the host.
 
@@ -23,10 +25,10 @@ workshop run dev -- fmt
 ```
 
 Build writes `bin/workshop-desktop` and stages the same binary for the
-[opener install hook](.workshop/host-open/hooks/setup-base). Build before launching
-or refreshing the [Firefox workshop](.workshop/firefox.yaml); the hook refuses to
-install without the binary. The build architecture must match the host and guest.
-The runtime SDKs need neither Go nor Python.
+[host integration setup hook](.workshop/host-integration/hooks/setup-base).
+Build before launching or refreshing the [apps workshop](.workshop/apps.yaml).
+The hook requires the staged binary. Its architecture must match the host and
+guest. The runtime SDKs need neither Go nor Python.
 
 The host needs Workshop/LXD with nested Snap support, a Wayland session,
 `xdg-dbus-proxy`, `pw-container`, `stdbuf`, and `xdg-open`. Host PipeWire must support
@@ -36,7 +38,7 @@ publication uses `rename`, so the socket created by `pw-container` and the
 the same filesystem; cross-filesystem publication fails.
 
 ```sh
-workshop launch firefox
+workshop launch apps
 ./bin/workshop-desktop host connect
 ```
 
@@ -48,8 +50,7 @@ Close guest GUI apps and stop running helpers before reconnecting.
 Host commands default to the current directory, which must contain
 `.workshop.lock` from a Workshop launch. `host COMMAND --project PATH` selects
 another project directory; `host connect --workshop NAME` selects a workshop
-using the same SDK and plug names as the Firefox definition. It does not change
-SDK composition.
+with the same SDK and plug names as the apps definition. The default is `apps`.
 
 Run all handlers in a host graphical-session terminal, without sudo:
 
@@ -84,17 +85,54 @@ Help and version output remain plain text.
 Keep the handlers running, then launch Firefox from another terminal:
 
 ```sh
-workshop run firefox -- firefox https://example.com
+workshop run apps -- firefox https://example.com
 ```
+
+## Any nightly and Codex
+
+The [`any` SDK](.workshop/any) downloads the latest Linux amd64 nightly when
+Workshop installs or reinstalls the SDK. It installs the executable
+at `/opt/any/Any.AppImage` inside the guest. Setup requires network access to
+the [nightly release feed](https://s3.eu-central-1.amazonaws.com/anytype-anyui-nightly/desktop/any/latest.json).
+An incremental refresh can reuse the existing SDK without downloading a new
+build. See the [Any persistence findings](docs/desktop-integration.md#any-state-across-refreshes)
+before refreshing an installation with local data.
+
+After connecting `apps` and starting the host handlers, run:
+
+```sh
+workshop run apps -- appimage
+workshop run apps -- codex
+workshop exec apps -- codex  # Codex CLI
+```
+
+The [Codex desktop SDK](.workshop/codex-desktop) installs the `chatgpt` package
+from OpenAI’s signed APT repository. The `codex` action starts ChatGPT desktop.
+See the [official Linux desktop instructions](https://learn.chatgpt.com/docs/linux/linux-app).
+
+Arguments after `workshop run apps -- appimage` are passed to the application.
+The launcher validates the Wayland connection and requires host D-Bus and
+PipeWire sockets. It selects Wayland explicitly, uses
+`--appimage-extract-and-run` to run without a FUSE device, and retains the
+application's sandbox defaults. These launch instructions require live host
+validation.
 
 ## Parts of the experiment
 
-| Guest SDK | Responsibility | Host implementation |
+The [host-integration SDK](.workshop/host-integration/sdk.yaml) provides the
+shared desktop and GPU plugs and three socket mounts. Its
+[setup hook](.workshop/host-integration/hooks/setup-base) groups guest setup
+by capability.
+
+| Capability | Guest setup | Host implementation |
 | --- | --- | --- |
-| [host-dbus](.workshop/host-dbus) | Mount a filtered host session bus; retain the guest's local buses | [D-Bus proxy and allowlist](internal/hostcmd/dbus.go) |
-| [host-audio](.workshop/host-audio) | Run guest `pipewire-pulse` against the host security-context socket; select it through an application wrapper | [PipeWire helper](internal/hostcmd/pipewire.go), [socket publication](internal/pipewire/socket.go) |
-| [host-open](.workshop/host-open) | Install the guest client as `/usr/bin/xdg-open` using `dpkg-divert` | [Host server](internal/hostcmd/open.go), [guest CLI](internal/guestcmd/open.go), [protocol and launcher](internal/opener/opener.go) |
-| [firefox-desktop](.workshop/firefox-desktop) | Install Firefox, configure its profile and Snap permissions, and adapt its launch environment | Workshop's native desktop/GPU/camera interfaces |
+| D-Bus | Mount the filtered session bus. Apps opt in and keep their local buses. | [D-Bus proxy and allowlist](internal/hostcmd/dbus.go) |
+| Audio | Install `pipewire-pulse`, the compatibility service, and its launcher wrapper. | [PipeWire helper](internal/hostcmd/pipewire.go), [socket publication](internal/pipewire/socket.go) |
+| Host opening | Install the guest client and divert `/usr/bin/xdg-open`. | [Host server](internal/hostcmd/open.go), [guest CLI](internal/guestcmd/open.go), [protocol and launcher](internal/opener/opener.go) |
+
+The [Firefox SDK](.workshop/firefox) owns the Firefox install, profile,
+camera plug, and Snap-specific setup. Firefox and the AppImage launcher both
+use the shared host integration.
 
 [Connection setup](internal/hostcmd/connect.go) manages mounts and interfaces separately
 from the servers. [Host utilities](internal/host) manage private paths, locks,
@@ -119,9 +157,9 @@ There is no X11 fallback.
 ## Open on the host
 
 ```sh
-workshop exec firefox -- xdg-open https://example.com
-workshop exec firefox -- xdg-open mailto:someone@example.com
-workshop exec firefox -- xdg-open /project/README.md
+workshop exec apps -- xdg-open https://example.com
+workshop exec apps -- xdg-open mailto:someone@example.com
+workshop exec apps -- xdg-open /project/README.md
 ```
 
 You can also run `workshop-desktop guest open URL|FILE` directly in the guest.
@@ -158,7 +196,7 @@ host’s regular `xdg-open` utility.
 - [PipeWire socket](internal/pipewire/socket_test.go): reject non-sockets and
   preserve the socket inode when publishing it.
 - [Connection setup](internal/hostcmd/connect_test.go): command order, mount paths,
-  Firefox desktop/camera plugs, existing connections, and stopping on remount
+  the shared desktop plug, the Firefox camera plug, and stopping on remount
   failure, using a fake Workshop command.
 - [Host serving](internal/hostcmd/serve_test.go): handler filtering, capability
   locks, cancellation, and cleanup when a sibling fails.
@@ -176,23 +214,23 @@ prohibits binding. Actual peer-credential extraction, D-Bus filtering, Firefox
 installation and confinement, portal file access, and audio/camera behavior still
 need live validation.
 
-On 15 October 2026, all Go test packages passed in a fresh run with the local
-Go 1.26.7 toolchain and a temporary module file targeting Go 1.26. HTML structure,
-local documentation links/anchors, and all six SDK shell scripts’ syntax checks
-also passed. This does not verify the committed Go 1.27 requirement. Workshop
-still fails at `snap-confine`, so Go 1.27 and live desktop validation remain
-outstanding. Earlier race checks were blocked by an unavailable C compiler.
+The test suite passes with Go 1.27.4. See the
+[live acceptance checks](docs/desktop-integration.md#live-acceptance-checks)
+for the remaining desktop validation.
 
 ## Apply changes
 
 Rebuild after Go changes. For guest SDK changes, stop the helpers, build, run
-`workshop refresh firefox`, reconnect with `bin/workshop-desktop host connect`,
-then restart the helpers and Firefox. Go-only host changes take effect after
-rebuilding and restarting the host helpers; refresh the guest as well when it
-needs the updated shared binary. If audio clients fail to reconnect after
+`workshop refresh apps`, reconnect with `bin/workshop-desktop host connect`,
+then restart the helpers and relaunch your apps. Go-only host changes take
+effect after rebuilding and restarting the host helpers. Refresh the guest
+when it needs the updated shared binary. If audio clients fail to reconnect after
 restarting the host helper:
 
 ```sh
-workshop exec firefox -- systemctl --user restart workshop-pipewire-pulse
-workshop exec firefox -- journalctl --user -u workshop-pipewire-pulse --no-pager -n 80
+workshop exec apps -- systemctl --user restart workshop-pipewire-pulse
+workshop exec apps -- journalctl --user -u workshop-pipewire-pulse --no-pager -n 80
 ```
+
+Existing `firefox` and `appimage` workshops are separate from the new `apps`
+workshop. The new workshop does not automatically migrate their Firefox profiles.

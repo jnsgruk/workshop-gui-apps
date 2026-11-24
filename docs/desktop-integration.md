@@ -10,7 +10,7 @@ and host application launching each have their own transport and policy.
 
 | Capability | Transport | Boundary |
 | --- | --- | --- |
-| Window presentation | Wayland | Workshop desktop plug supplies the display socket and environment. |
+| Window presentation | Wayland | The shared SDK’s desktop plug supplies the display socket and environment. |
 | Notifications and desktop services | Filtered session D-Bus | The host proxy exposes selected service names to guest clients. |
 | Camera | V4L2 and media device nodes | Workshop camera interface, Snap camera plug, then website permission. |
 | Microphone and speakers | PulseAudio protocol backed by PipeWire | Guest compatibility server uses a host security-context socket. |
@@ -21,15 +21,16 @@ the audio bridge. Camera capture and screen sharing use distinct paths.
 Screen sharing requires separate screencast and portal integration. GPU access
 supports rendering. Hardware decoding and DRM need independent validation.
 
-[Firefox SDK definition](../.workshop/firefox-desktop/sdk.yaml) · [Firefox workshop actions](../.workshop/firefox.yaml) · [Workshop desktop interface](https://ubuntu.com/workshop/docs/explanation/interfaces/desktop-interface/)
+[Firefox SDK definition](../.workshop/firefox/sdk.yaml) · [Apps workshop actions](../.workshop/apps.yaml) · [Workshop desktop interface](https://ubuntu.com/workshop/docs/explanation/interfaces/desktop-interface/)
 
 ### D-Bus and notifications
 
 The logged-in desktop user runs `xdg-dbus-proxy` with `--filter`. The
 allowlist includes `org.freedesktop.Notifications` for direct notification
-calls and `org.freedesktop.portal.Desktop` and
-`org.freedesktop.portal.Documents` for portal calls. A portal service-name
-grant covers more than a single operation such as displaying a notification.
+calls, `org.freedesktop.portal.Desktop` and `org.freedesktop.portal.Documents`
+for portal calls, and `org.freedesktop.secrets` for Any's keychain. The Secret
+Service grant applies to every client using the forwarded session bus, subject
+to the host keyring's own access controls.
 Guest snapd and the user manager continue using the guest's own buses.
 
 Firefox creates its systemd scope on the local session bus. Its Snap command
@@ -42,7 +43,7 @@ application can opt in by setting
 Guest-only icon paths, notification action routing, portal application identity,
 and usable document mounts all need separate handling or validation.
 
-[Proxy allowlist](../internal/hostcmd/dbus.go) · [Firefox launcher](../.workshop/firefox-desktop/bin/workshop-firefox) · [Snap runtime bind mount](../.workshop/firefox-desktop/systemd/run-user-1000-snap.firefox-hostbus.mount) · [Desktop Notifications protocol](https://specifications.freedesktop.org/notification/latest/protocol.html) · [xdg-dbus-proxy](https://github.com/flatpak/xdg-dbus-proxy)
+[Proxy allowlist](../internal/hostcmd/dbus.go) · [Firefox launcher](../.workshop/firefox/bin/workshop-firefox) · [Snap runtime bind mount](../.workshop/firefox/systemd/run-user-1000-snap.firefox-hostbus.mount) · [Desktop Notifications protocol](https://specifications.freedesktop.org/notification/latest/protocol.html) · [xdg-dbus-proxy](https://github.com/flatpak/xdg-dbus-proxy)
 
 ### Camera
 
@@ -55,7 +56,7 @@ A future portal-based camera path would need portal authorization and a
 PipeWire stream. The existing D-Bus service grant supplies access to portal
 calls.
 
-[Camera declaration](../.workshop/firefox-desktop/sdk.yaml) · [Snap connections](../.workshop/firefox-desktop/hooks/setup-base) · [Workshop camera interface](https://ubuntu.com/workshop/docs/explanation/interfaces/camera-interface/)
+[Camera declaration](../.workshop/firefox/sdk.yaml) · [Snap connections](../.workshop/firefox/hooks/setup-base) · [Workshop camera interface](https://ubuntu.com/workshop/docs/explanation/interfaces/camera-interface/)
 
 ### Audio
 
@@ -82,7 +83,7 @@ microphone capture, and speaker-monitor capture are distinct permissions for
 a native interface to enforce. A source ending in `.monitor` captures speaker
 output. Website consent applies inside Firefox.
 
-[Host helper](../internal/hostcmd/pipewire.go) · [Guest service](../.workshop/host-audio/systemd/workshop-pipewire-pulse.service) · [Audio wrapper](../.workshop/host-audio/bin/workshop-host-audio) · [pw-container](https://docs.pipewire.org/page_man_pw-container_1.html) · [PipeWire native protocol](https://docs.pipewire.org/page_native_protocol.html) · [WirePlumber client access](https://pipewire.pages.freedesktop.org/wireplumber/policies/client_access.html)
+[Host helper](../internal/hostcmd/pipewire.go) · [Guest service](../.workshop/host-integration/systemd/workshop-pipewire-pulse.service) · [Audio wrapper](../.workshop/host-integration/bin/workshop-host-audio) · [pw-container](https://docs.pipewire.org/page_man_pw-container_1.html) · [PipeWire native protocol](https://docs.pipewire.org/page_native_protocol.html) · [WirePlumber client access](https://pipewire.pages.freedesktop.org/wireplumber/policies/client_access.html)
 
 ### Host opener
 
@@ -112,7 +113,7 @@ The [command entry point](../cmd/workshop-desktop/main.go) dispatches host and
 guest roles. Guest dispatch runs before host initialization, so the guest
 opener can run independently of the host lockfile, project directory setup,
 and desktop-user check. The dev build stages the same static binary for the
-host-open SDK to install at `/usr/local/bin/workshop-desktop`.
+host-integration SDK to install at `/usr/local/bin/workshop-desktop`.
 
 [Connection setup](../internal/hostcmd/connect.go) stops the guest, remounts
 the endpoint directories, restarts the guest, and connects desktop and camera.
@@ -121,9 +122,9 @@ root is `/tmp/workshop-desktop-<HOST-UID>-<PROJECT-ID>/`.
 
 | Host subdirectory | SDK mount | Guest endpoint |
 | --- | --- | --- |
-| `session` | `host-dbus:host-session` | `/mnt/workshop-host/session/bus` |
-| `pipewire` | `host-audio:host-pipewire` | `/mnt/workshop-host/pipewire/pipewire-0` |
-| `open` | `host-open:host-open` | `/mnt/workshop-host/open/socket` |
+| `session` | `host-integration:host-session` | `/mnt/workshop-host/session/bus` |
+| `pipewire` | `host-integration:host-pipewire` | `/mnt/workshop-host/pipewire/pipewire-0` |
+| `open` | `host-integration:host-open` | `/mnt/workshop-host/open/socket` |
 
 Host directories use mode 0700. Read-only mounts map ownership to guest UID
 and GID 1000 and allow clients to connect to the sockets. Service policy
@@ -134,25 +135,36 @@ Each handler owns its own lock and cleanup. [Grouped serving](../internal/hostcm
 stops all selected handlers when one fails. On shutdown, D-Bus and PipeWire
 children receive SIGTERM and are forcibly terminated if they exceed the wait
 limit. Reconnect after the host clears `/tmp` and restart affected guest clients
-as needed. Existing state from the earlier combined workshop or profile
-requires manual migration.
+as needed. Firefox profiles from the former `firefox` and `appimage` workshops
+require manual migration into `apps`.
 
 [Host dispatch](../internal/hostcmd/host.go) · [Host lifecycle utilities](../internal/host) · [Development build](../.workshop/dev.yaml)
 
 ## Guest SDK audit
 
-This audit covers the four SDKs used by the Firefox workshop. The
-[AppImage workshop](../README.md#appimage-workshop-with-codex) reuses them and
-adds its own launcher and dependencies.
+The [apps workshop](../.workshop/apps.yaml) composes the shared host-integration
+SDK with `firefox`, `any`, the Codex CLI, and
+[Codex desktop](../.workshop/codex-desktop). The shared SDK declares the
+desktop and GPU plugs and groups setup by capability.
 
-| SDK | Packages and runtime responsibilities |
+| Shared capability | Guest setup |
 | --- | --- |
-| [host-dbus](../.workshop/host-dbus/sdk.yaml) | Provides the generic filtered session-bus mount. Application-specific bus selection lives in the application SDK. |
-| [host-audio](../.workshop/host-audio/sdk.yaml) | Installs `dbus-user-session` and `pipewire-pulse`. Starts one compatibility service on demand through `workshop-host-audio COMMAND`, with systemd handling retries. Masks distribution PipeWire, Pulse socket activation, and WirePlumber units to prevent competing services. |
-| [host-open](../.workshop/host-open/sdk.yaml) | Installs the staged static tool and wrapper. `dpkg-divert` preserves the packaged opener at `/usr/bin/xdg-open.distrib` when present and diverts future installs. |
-| [firefox-desktop](../.workshop/firefox-desktop/sdk.yaml) | Installs `snapd` and `dbus-user-session`, owns the native interfaces and Snap permissions, and persists the Firefox profile across refreshes. |
+| D-Bus | The SDK declares the filtered session-bus mount. Application-specific bus selection lives in the launchers. |
+| Audio | The setup hook installs `dbus-user-session` and `pipewire-pulse`. It installs a compatibility service that starts on demand through `workshop-host-audio COMMAND`, with systemd handling retries. It masks distribution PipeWire, Pulse socket activation, and WirePlumber units to prevent competing services. |
+| Host opening | The setup hook installs the staged static tool and wrapper. `dpkg-divert` preserves the packaged opener at `/usr/bin/xdg-open.distrib` when present and diverts future installs. |
 
-The Firefox action composes `workshop-host-audio` with `workshop-firefox`.
+The shared hook checks for the staged binary before changing the guest.
+The Firefox SDK installs `snapd` and `dbus-user-session`, owns the native camera
+plug and Snap permissions, and persists the Firefox profile across refreshes.
+The [`any` setup hook](../.workshop/any/hooks/setup-base) installs the
+application libraries and resolves the latest Linux amd64 AppImage from the
+nightly manifest. It downloads to a temporary file in `/opt/any` and renames
+it to `/opt/any/Any.AppImage` after a successful download. The launcher uses
+that installed path on every run.
+
+Both app actions use `workshop-host-audio`. The Firefox action invokes it
+before the Firefox launcher, while the AppImage launcher invokes it after
+validating the Wayland connection and shared sockets.
 The install hook enables snapd, waits for seeding, and installs Firefox from
 `latest/stable` if absent. An existing install keeps its channel. The desktop
 and Wayland plugs grant access to desktop resources and the display socket.
@@ -173,12 +185,44 @@ The audit removed explicit installs of `xdg-utils`, `dbus-bin`, `v4l-utils`,
 `pulseaudio-utils`, `pipewire-bin`, and extra fonts from the Firefox stack.
 The opener wrapper supplies the needed entry point, and `pipewire-pulse`
 brings its package dependencies. The audit also removed the host system-bus
-proxy, host keyring and Firefox name-ownership grants, the X11 fallback, and
+proxy, Firefox name-ownership grants, the X11 fallback, and
 startup diagnostic probes. The audio wrapper now starts its service on demand
 and sets `PULSE_SERVER` for the application. Unit reloads occur at installation
 or refresh.
 
-[Audio hook](../.workshop/host-audio/hooks/setup-base) · [Opener hook](../.workshop/host-open/hooks/setup-base) · [Firefox hook](../.workshop/firefox-desktop/hooks/setup-base) · [Snap desktop policy](https://raw.githubusercontent.com/canonical/snapd/master/interfaces/builtin/desktop.go) · [Snap legacy desktop policy](https://raw.githubusercontent.com/canonical/snapd/master/interfaces/builtin/desktop_legacy.go) · [pipewire-pulse](https://docs.pipewire.org/page_man_pipewire-pulse_1.html)
+[Shared SDK setup hook](../.workshop/host-integration/hooks/setup-base) · [Firefox hook](../.workshop/firefox/hooks/setup-base) · [Snap desktop policy](https://raw.githubusercontent.com/canonical/snapd/master/interfaces/builtin/desktop.go) · [Snap legacy desktop policy](https://raw.githubusercontent.com/canonical/snapd/master/interfaces/builtin/desktop_legacy.go) · [pipewire-pulse](https://docs.pipewire.org/page_man_pipewire-pulse_1.html)
+
+### Any state across refreshes
+
+Static inspection of nightly `0.1.36-nightly.20261124.2` found the Tauri bundle
+identifier `io.anyproto.any.nightly`, the `ANY_DATA_DIR` override, and a
+Linux Secret Service backend. The Workshop SDK currently declares no Any
+data mounts.
+
+| State | Path to verify for a private, writable mount |
+| --- | --- |
+| Backend database, device identity, local records, and file bytes | Mount the effective `ANY_DATA_DIR`. The documented backend default is `/home/workshop/.any`. Confirm the desktop launcher uses it, or explicitly configure the path after migrating existing data. |
+| Desktop and WebKit profile | With default XDG paths, Tauri points to `/home/workshop/.local/share/io.anyproto.any.nightly` for local data. Check `/home/workshop/.config/io.anyproto.any.nightly` for settings written separately. These paths are inferred from the bundle identifier and Tauri defaults. |
+| Backend config override | Preserve `/home/workshop/.config/any` if it contains a custom backend config. |
+
+[Any data directory](https://docs.any.org/operations/data-dir.html) · [Any configuration](https://docs.any.org/reference/config.html) · [Tauri path resolution](https://tauri.app/reference/javascript/api/namespacepath/#applocaldatadir) · [Tauri WebView data directory](https://github.com/tauri-apps/tauri/blob/dev/crates/tauri/src/manager/webview.rs)
+
+Remembered sign-in uses the host's Secret Service over the filtered session
+bus. The host graphical session needs a running or activatable Secret Service
+provider and a keyring that Any can unlock. After updating the host helper,
+restart it and relaunch Any. Sign in once if prompted so Any can save the
+phrase. The SDK reinstalls
+`/opt/any/Any.AppImage` when its setup hook runs. The executable does not need
+a data mount. Workshop preserves valid mount connections across refreshes and
+can reuse unchanged SDKs without rerunning setup.
+
+[Managed Any accounts](https://docs.any.org/auth/accounts.html) · [Workshop refresh and connections](https://ubuntu.com/workshop/docs/explanation/workshops/concepts/#connections-across-refresh-and-restore)
+
+On a Wayland host, use a disposable profile to check the actual paths after
+changing a setting and creating a device-local record and attachment. Shut Any
+down, preserve any existing data before mounting over its directories, and
+verify the record, attachment, setting, and device identity after a refresh.
+Live validation requires a Workshop host and a Wayland session.
 
 ## Native interface proposal
 
@@ -204,9 +248,8 @@ whether each grant applies to the workshop, an SDK, or a verified application.
 ## Live acceptance checks
 
 The [automated tests and validation history](../README.md#automated-tests-and-limits)
-cover the helpers and wrappers. Earlier verification also built the static
-binary and smoke-tested help and version output with a temporary Go 1.26 module.
-Live Workshop and Firefox integration remains unverified.
+cover the helpers and wrappers. Live integration in the `apps` workshop
+remains unverified.
 
 | Capability | What to verify in a live session |
 | --- | --- |
