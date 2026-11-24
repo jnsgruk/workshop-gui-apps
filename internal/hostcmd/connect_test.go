@@ -6,8 +6,10 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 	"workshop-desktop/internal/host"
 )
 
@@ -73,8 +75,7 @@ fi
 					t.Fatal(err)
 				}
 			} else {
-				var exit *exec.ExitError
-				if !errors.As(err, &exit) || exit.ExitCode() != tc.status {
+				if exit, ok := errors.AsType[*exec.ExitError](err); !ok || exit.ExitCode() != tc.status {
 					t.Fatalf("wanted command failure with status %d, got %v", tc.status, err)
 				}
 			}
@@ -126,4 +127,36 @@ printf '%s\n' "$*" >> "$CONNECT_TEST_LOG"
 		t.Fatal("connect leaked the first lock:", err)
 	}
 	_ = lock.Close()
+}
+
+func TestConnectBoundsInheritedOutput(t *testing.T) {
+	root := t.TempDir()
+	pidFile := filepath.Join(root, "child.pid")
+	t.Setenv("PATH", root)
+	t.Setenv("CONNECT_TEST_PID_FILE", pidFile)
+	t.Cleanup(func() {
+		data, err := os.ReadFile(pidFile)
+		if err != nil {
+			return
+		}
+		pid, err := strconv.Atoi(strings.TrimSpace(string(data)))
+		if err == nil {
+			if child, err := os.FindProcess(pid); err == nil {
+				_ = child.Kill()
+			}
+		}
+	})
+	if err := os.WriteFile(filepath.Join(root, "workshop"), []byte(`#!/bin/sh
+/bin/sleep 8 &
+printf '%s\n' "$!" > "$CONNECT_TEST_PID_FILE"
+`), 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithTimeout(t.Context(), 6*time.Second)
+	defer cancel()
+	p := host.Project{Directory: root, Root: root}
+	if err := connect(ctx, p, "apps"); !errors.Is(err, exec.ErrWaitDelay) {
+		t.Fatalf("wanted inherited output to exceed WaitDelay, got %v", err)
+	}
 }

@@ -2,10 +2,10 @@
 package logging
 
 import (
+	"bytes"
 	"context"
 	"io"
 	"log/slog"
-	"strings"
 )
 
 type contextKey struct{}
@@ -25,33 +25,57 @@ func Logger(ctx context.Context) *slog.Logger {
 	return slog.Default()
 }
 
-// Writer turns child output into log records. Each stream needs its own writer;
-// Flush must be called after the child has finished writing.
+const maxRecordBytes = 64 * 1024
+
+// Writer turns child output into log records, splitting oversized lines.
+// Each stream needs its own writer. Flush after the child stops writing.
 type Writer struct {
-	Logger *slog.Logger
-	Level  slog.Level
-	line   string
+	Context context.Context
+	Logger  *slog.Logger
+	Level   slog.Level
+
+	line      []byte
+	continued bool
 }
 
 func (w *Writer) Write(p []byte) (int, error) {
-	w.line += string(p)
-	for {
-		i := strings.IndexByte(w.line, '\n')
-		if i < 0 {
-			// Bound buffering for children that never emit a newline.
-			if len(w.line) >= 64*1024 {
-				w.Flush()
+	n := len(p)
+	for len(p) > 0 {
+		room := maxRecordBytes - len(w.line)
+		// Look one byte beyond the available space to accept a newline
+		// immediately after a full record.
+		if newline := bytes.IndexByte(p[:min(len(p), room+1)], '\n'); newline >= 0 {
+			w.line = append(w.line, p[:newline]...)
+			w.line = bytes.TrimSuffix(w.line, []byte("\r"))
+			if len(w.line) > 0 || !w.continued {
+				w.log()
 			}
-			return len(p), nil
+			w.line = w.line[:0]
+			w.continued = false
+			p = p[newline+1:]
+			continue
 		}
-		w.Logger.Log(context.Background(), w.Level, strings.TrimSuffix(w.line[:i], "\r"))
-		w.line = w.line[i+1:]
+
+		take := min(room, len(p))
+		w.line = append(w.line, p[:take]...)
+		p = p[take:]
+		if len(p) > 0 {
+			w.log()
+			w.line = w.line[:0]
+			w.continued = true
+		}
 	}
+	return n, nil
 }
 
 func (w *Writer) Flush() {
-	if w.line != "" {
-		w.Logger.Log(context.Background(), w.Level, w.line)
-		w.line = ""
+	if len(w.line) > 0 {
+		w.log()
+		w.line = w.line[:0]
 	}
+	w.continued = false
+}
+
+func (w *Writer) log() {
+	w.Logger.Log(w.Context, w.Level, string(w.line))
 }

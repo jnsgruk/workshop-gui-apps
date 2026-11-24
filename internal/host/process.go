@@ -23,8 +23,8 @@ func Start(ctx context.Context, configure func(*exec.Cmd), name string, args ...
 
 	cmd := exec.CommandContext(ctx, name, args...)
 	logger := logging.Logger(ctx).With("process", name)
-	stdout := &logging.Writer{Logger: logger.With("stream", "stdout"), Level: slog.LevelInfo}
-	stderr := &logging.Writer{Logger: logger.With("stream", "stderr"), Level: slog.LevelWarn}
+	stdout := &logging.Writer{Context: ctx, Logger: logger.With("stream", "stdout"), Level: slog.LevelInfo}
+	stderr := &logging.Writer{Context: ctx, Logger: logger.With("stream", "stderr"), Level: slog.LevelWarn}
 	cmd.Stdout, cmd.Stderr = stdout, stderr
 	cmd.Cancel = func() error { return cmd.Process.Signal(syscall.SIGTERM) }
 	cmd.WaitDelay = 3 * time.Second

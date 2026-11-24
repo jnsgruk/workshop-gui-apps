@@ -38,6 +38,6 @@ func runDBus(ctx context.Context, p host.Project) error {
 		return err
 	}
 
-	logging.Logger(ctx).Info("Session D-Bus ready", "socket", socket)
+	logging.Logger(ctx).InfoContext(ctx, "Session D-Bus ready", "socket", socket)
 	return process.Wait(ctx)
 }
