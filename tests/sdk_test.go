@@ -75,7 +75,7 @@ func TestAudioWrapperPreservesApplicationEnvironmentAndArguments(t *testing.T) {
 	}
 }
 
-func TestOpenerInstallRequiresBuiltClientBeforeChangingGuest(t *testing.T) {
+func TestSetupRequiresBuiltBinaryBeforeChangingGuest(t *testing.T) {
 	hook, err := filepath.Abs("../.workshop/host-integration/hooks/setup-base")
 	if err != nil {
 		t.Fatal(err)
@@ -86,36 +86,88 @@ func TestOpenerInstallRequiresBuiltClientBeforeChangingGuest(t *testing.T) {
 
 	output, err := exec.Command("/bin/bash", hook).CombinedOutput()
 	if exit, ok := err.(*exec.ExitError); !ok || exit.ExitCode() != 1 {
-		t.Fatalf("missing client did not stop installation: %v, %s", err, output)
+		t.Fatalf("missing binary did not stop installation: %v, %s", err, output)
 	}
 	if !strings.Contains(string(output), "workshop run dev -- build") {
 		t.Fatalf("missing rebuild instructions: %s", output)
 	}
 }
 
-func TestGuestOpenerWrapperPreservesArgumentsAndExitStatus(t *testing.T) {
-	wrapper, err := os.ReadFile("../.workshop/host-integration/bin/xdg-open")
+func TestGuestOpenerWrapper(t *testing.T) {
+	wrapper, err := filepath.Abs("../.workshop/host-integration/bin/xdg-open")
 	if err != nil {
 		t.Fatal(err)
 	}
 	root := t.TempDir()
-	binary := filepath.Join(root, "workshop-desktop")
-	script := "#!/bin/sh\nprintf '%s\\n' \"$@\"\nexit 4\n"
-	if err := os.WriteFile(binary, []byte(script), 0700); err != nil {
+	log := filepath.Join(root, "call")
+	script := `#!/bin/sh
+printf '%s\n' "$DBUS_SESSION_BUS_ADDRESS" "$@" > "$OPENER_TEST_LOG"
+printf '%s\n' '/org/freedesktop/portal/desktop/request/handle'
+if [ "$OPENER_TEST_FAIL" = 1 ]; then
+    printf '%s\n' 'Could not connect to the host session bus' >&2
+    exit 4
+fi
+`
+	if err := os.WriteFile(filepath.Join(root, "gdbus"), []byte(script), 0700); err != nil {
 		t.Fatal(err)
 	}
-	// Substitute only the installation path so no guest installation is needed.
-	content := strings.Replace(string(wrapper), "/usr/local/bin/workshop-desktop", binary, 1)
-	path := filepath.Join(root, "xdg-open")
-	if err := os.WriteFile(path, []byte(content), 0700); err != nil {
-		t.Fatal(err)
+	t.Setenv("PATH", root)
+	t.Setenv("OPENER_TEST_LOG", log)
+	t.Setenv("DBUS_SESSION_BUS_ADDRESS", "unix:path=/guest/bus")
+
+	for _, tc := range []struct {
+		args   []string
+		code   int
+		output string
+	}{
+		{nil, 1, "Usage: xdg-open URL"},
+		{[]string{"https://example.com", "--help"}, 1, "Usage: xdg-open URL"},
+		{[]string{"--help"}, 0, "Usage: xdg-open URL"},
+		{[]string{"--version"}, 0, "xdg-open workshop-portal"},
+		{[]string{"/project/README.md"}, 1, "Usage: xdg-open URL"},
+		{[]string{"FiLe:///project/README.md"}, 1, "local files are unsupported"},
+		{[]string{"1https://example.com"}, 1, "Usage: xdg-open URL"},
+		{[]string{"https://example.com/a b"}, 1, "Usage: xdg-open URL"},
+	} {
+		t.Run(strings.Join(tc.args, " "), func(t *testing.T) {
+			cmd := exec.Command(wrapper, tc.args...)
+			output, _ := cmd.CombinedOutput()
+			if cmd.ProcessState == nil || cmd.ProcessState.ExitCode() != tc.code || !strings.Contains(string(output), tc.output) {
+				t.Fatalf("unexpected status or output: %v, %q", cmd.ProcessState, output)
+			}
+			if _, err := os.Stat(log); !os.IsNotExist(err) {
+				t.Fatalf("gdbus called for %q: %v", tc.args, err)
+			}
+		})
 	}
-	output, err := exec.Command(path, "a file with spaces", "$(not a shell command)").CombinedOutput()
-	if exit, ok := err.(*exec.ExitError); !ok || exit.ExitCode() != 4 {
-		t.Fatalf("lost guest status: %v, %s", err, output)
+
+	for _, uri := range []string{"https://example.com/a?x=$(test)&q='text'", "mailto:someone@example.com"} {
+		output, err := exec.Command(wrapper, uri).CombinedOutput()
+		if err != nil || len(output) != 0 {
+			t.Fatalf("unexpected result: %v, %q", err, output)
+		}
+		data, err := os.ReadFile(log)
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := strings.Join([]string{
+			"unix:path=/guest/bus",
+			"call", "--address", "unix:path=/mnt/workshop-host/session/bus",
+			"--dest", "org.freedesktop.portal.Desktop",
+			"--object-path", "/org/freedesktop/portal/desktop",
+			"--method", "org.freedesktop.portal.OpenURI.OpenURI",
+			"", uri, "{}", "",
+		}, "\n")
+		if string(data) != want {
+			t.Fatalf("changed gdbus arguments: %q", data)
+		}
 	}
-	if string(output) != "guest\nopen\na file with spaces\n$(not a shell command)\n" {
-		t.Fatalf("changed guest command arguments: %q", output)
+
+	t.Setenv("OPENER_TEST_FAIL", "1")
+	output, err := exec.Command(wrapper, "https://example.com").CombinedOutput()
+	if exit, ok := err.(*exec.ExitError); !ok || exit.ExitCode() != 4 ||
+		string(output) != "Could not connect to the host session bus\n" {
+		t.Fatalf("lost gdbus error: %v, %q", err, output)
 	}
 }
 

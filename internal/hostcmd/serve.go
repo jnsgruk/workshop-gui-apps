@@ -18,7 +18,6 @@ type handler struct {
 var handlers = []handler{
 	{"dbus", runDBus},
 	{"pipewire", runPipeWire},
-	{"open", runOpen},
 }
 
 func selectHandlers(value string) ([]handler, error) {
@@ -38,7 +37,7 @@ func selectHandlers(value string) ([]handler, error) {
 			}
 		}
 		if !found {
-			return nil, fmt.Errorf("unknown handler %q; choose from dbus, pipewire, open", name)
+			return nil, fmt.Errorf("unknown handler %q; choose from dbus, pipewire", name)
 		}
 	}
 	return selected, nil

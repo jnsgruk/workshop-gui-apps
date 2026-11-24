@@ -52,7 +52,7 @@ func Load(directory string) (Project, error) {
 		Root:      fmt.Sprintf("/tmp/workshop-desktop-%d-%s", os.Getuid(), id),
 	}
 
-	for _, part := range []string{"", "session", "pipewire", "open"} {
+	for _, part := range []string{"", "session", "pipewire"} {
 		if err := privateDirectory(filepath.Join(p.Root, part)); err != nil {
 			return Project{}, err
 		}

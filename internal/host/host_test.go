@@ -26,7 +26,7 @@ func TestLocksPreventDuplicateServersAndAllowOtherCapabilities(t *testing.T) {
 		t.Fatal("duplicate acquired lock")
 	}
 
-	other, err := p.Lock("open")
+	other, err := p.Lock("pipewire")
 	if err != nil {
 		t.Fatal(err)
 	}

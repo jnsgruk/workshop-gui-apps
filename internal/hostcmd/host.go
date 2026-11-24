@@ -13,7 +13,7 @@ import (
 
 // Run selects a host operation before initializing project state.
 func Run(args []string, stdout, stderr io.Writer) int {
-	const usage = "Usage: workshop-desktop host {connect|serve|dbus|pipewire|open} [--project PATH]\n       workshop-desktop host connect [--workshop NAME]\n       workshop-desktop host serve [--only=dbus,pipewire,open]"
+	const usage = "Usage: workshop-desktop host {connect|serve|dbus|pipewire} [--project PATH]\n       workshop-desktop host connect [--workshop NAME]\n       workshop-desktop host serve [--only=dbus,pipewire]"
 	if len(args) == 0 {
 		fmt.Fprintln(stderr, usage)
 		return 2
@@ -35,14 +35,14 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	case "serve":
 		selected := handlers
 		register = func(flags *flag.FlagSet) {
-			flags.Func("only", "comma-separated handlers to run (dbus, pipewire, open; default: all)", func(value string) error {
+			flags.Func("only", "comma-separated handlers to run (dbus, pipewire; default: all)", func(value string) error {
 				var err error
 				selected, err = selectHandlers(value)
 				return err
 			})
 		}
 		operation = func(ctx context.Context, p host.Project) error { return runHandlers(ctx, p, selected) }
-	case "dbus", "pipewire", "open":
+	case "dbus", "pipewire":
 		selected, _ := selectHandlers(capability)
 		operation = func(ctx context.Context, p host.Project) error { return runHandlers(ctx, p, selected) }
 	default:

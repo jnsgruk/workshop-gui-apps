@@ -46,7 +46,6 @@ fi
 		"stop apps",
 		"remount apps/host-integration:host-session " + filepath.Join(root, "session"),
 		"remount apps/host-integration:host-pipewire " + filepath.Join(root, "pipewire"),
-		"remount apps/host-integration:host-open " + filepath.Join(root, "open"),
 		"start apps",
 		"connect apps/host-integration:desktop",
 		"connect apps/firefox:camera",

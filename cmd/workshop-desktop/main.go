@@ -13,8 +13,8 @@ import (
 func main() { os.Exit(run(os.Args[1:], os.Stdout, os.Stderr)) }
 
 func run(args []string, stdout, stderr io.Writer) int {
-	const guestUsage = "Usage: workshop-desktop guest open URL|FILE\n" + guestcmd.LaunchUsage
-	const usage = "Usage: workshop-desktop host {connect|serve|dbus|pipewire|open} [OPTIONS]\n       workshop-desktop guest {open|launch} [OPTIONS]"
+	const guestUsage = guestcmd.LaunchUsage
+	const usage = "Usage: workshop-desktop host {connect|serve|dbus|pipewire} [OPTIONS]\n       workshop-desktop guest launch [OPTIONS]"
 	if len(args) == 0 {
 		fmt.Fprintln(stderr, usage)
 		return 2
@@ -32,8 +32,6 @@ func run(args []string, stdout, stderr io.Writer) int {
 		}
 		if len(args) >= 2 {
 			switch args[1] {
-			case "open":
-				return guestcmd.Run(args[2:], stdout, stderr)
 			case "launch":
 				return guestcmd.Launch(args[2:], stdout, stderr)
 			case "audio":

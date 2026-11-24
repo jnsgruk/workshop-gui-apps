@@ -1,2 +1,48 @@
 #!/bin/sh
-exec /usr/local/bin/workshop-desktop guest open "$@"
+
+usage='Usage: xdg-open URL'
+
+if [ "$#" -ne 1 ]; then
+    printf '%s\n' "$usage" >&2
+    exit 1
+fi
+
+case "$1" in
+    -h|--help)
+        printf '%s\n' "$usage"
+        exit 0
+        ;;
+    --version)
+        printf '%s\n' 'xdg-open workshop-portal 1'
+        exit 0
+        ;;
+    [Ff][Ii][Ll][Ee]:*)
+        printf '%s\n' 'xdg-open: local files are unsupported' >&2
+        exit 1
+        ;;
+esac
+
+# Check the scheme and reject literal whitespace and control characters.
+scheme=${1%%:*}
+case "$1" in
+    *[[:space:][:cntrl:]]*|*:|'')
+        printf '%s\n' "$usage" >&2
+        exit 1
+        ;;
+esac
+case "$scheme" in
+    ''|[!a-zA-Z]*|*[!a-zA-Z0-9+.-]*)
+        printf '%s\n' "$usage" >&2
+        exit 1
+        ;;
+esac
+if [ "$scheme" = "$1" ]; then
+    printf '%s\n' "$usage" >&2
+    exit 1
+fi
+
+exec gdbus call --address unix:path=/mnt/workshop-host/session/bus \
+    --dest org.freedesktop.portal.Desktop \
+    --object-path /org/freedesktop/portal/desktop \
+    --method org.freedesktop.portal.OpenURI.OpenURI \
+    "" "$1" "{}" >/dev/null

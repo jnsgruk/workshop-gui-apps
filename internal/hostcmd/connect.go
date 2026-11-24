@@ -18,7 +18,7 @@ func connect(ctx context.Context, p host.Project, name string) error {
 		return fmt.Errorf("invalid workshop name")
 	}
 
-	for _, capability := range []string{"dbus", "pipewire", "open"} {
+	for _, capability := range []string{"dbus", "pipewire"} {
 		lock, err := p.Lock(capability)
 		if err != nil {
 			return err
@@ -50,7 +50,6 @@ func connect(ctx context.Context, p host.Project, name string) error {
 	mounts := []struct{ plug, directory string }{
 		{"host-session", "session"},
 		{"host-pipewire", "pipewire"},
-		{"host-open", "open"},
 	}
 
 	for _, mount := range mounts {

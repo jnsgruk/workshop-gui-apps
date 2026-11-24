@@ -12,7 +12,7 @@ fi
 # Audio: install the guest PulseAudio compatibility service and wrapper.
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
-apt-get install -y --no-install-recommends pipewire-pulse dbus-user-session wayland-utils
+apt-get install -y --no-install-recommends pipewire-pulse dbus-user-session wayland-utils libglib2.0-bin
 
 # The host owns the graph and session manager. Only our compatibility server
 # should listen on the guest Pulse socket, including after socket activation.
@@ -27,9 +27,9 @@ install -m 0755 "$SDK/bin/workshop-host-audio" /usr/local/bin/workshop-host-audi
 systemctl --global disable workshop-pipewire-pulse.service
 rm -f /etc/profile.d/workshop-host-audio.sh
 
-# Host opening: install the client and divert the guest opener.
+# Host URL opening: divert the packaged guest opener.
 # Cover PATH and absolute-path callers. Preserve xdg-utils' utility if present,
-# and divert future package installs too; the client does not need xdg-utils.
+# and divert future package installs too; the wrapper uses gdbus.
 dpkg-divert --local --rename --add /usr/bin/xdg-open
 install -m 0755 "$SDK/bin/workshop-desktop" /usr/local/bin/workshop-desktop
 install -m 0755 "$SDK/bin/xdg-open" /usr/bin/xdg-open

@@ -14,7 +14,7 @@ and host application launching each have their own transport and policy.
 | Notifications and desktop services | Filtered session D-Bus | The host proxy exposes selected service names to guest clients. |
 | Camera | V4L2 and media device nodes | Workshop camera interface, Snap camera plug, then website permission. |
 | Microphone and speakers | PulseAudio protocol backed by PipeWire | Guest compatibility server uses a host security-context socket. |
-| Open URLs and shared files | JSON over a Unix socket | Guest opener forwards to the host's default application. |
+| Open URLs | Filtered session D-Bus | The host desktop portal dispatches requests to a host URL handler. |
 
 Video playback uses the application's codecs and display, with sound through
 the audio bridge. Camera capture and screen sharing use distinct paths.
@@ -81,33 +81,26 @@ source ending in `.monitor` captures speaker output. Website consent applies ins
 
 [Host helper](../internal/hostcmd/pipewire.go) · [Guest service](../.workshop/host-integration/systemd/workshop-pipewire-pulse.service) · [Audio wrapper](../.workshop/host-integration/bin/workshop-host-audio) · [pw-container](https://docs.pipewire.org/page_man_pw-container_1.html) · [PipeWire native protocol](https://docs.pipewire.org/page_native_protocol.html) · [WirePlumber client access](https://pipewire.pages.freedesktop.org/wireplumber/policies/client_access.html)
 
-### Host opener
+### Host URL opening
 
-The guest normalizes paths and sends one bounded JSON request. The host checks
-the peer UID, rejects control characters, resolves shared files under the host
-checkout, and rejects symlink escapes. It invokes its registered `xdg-open`
-with one argument and without a shell. All non-file URI schemes go to the
-host's handlers. Guest-only files need to be copied into `/project` first.
+The guest `/usr/bin/xdg-open` wrapper takes one non-file URI and uses
+`gdbus` to call `org.freedesktop.portal.OpenURI.OpenURI` on the filtered host
+session bus at `/mnt/workshop-host/session/bus`. Run `host dbus` or
+`host serve` to publish that socket. The portal selects the host handler.
+A successful exit means the portal returned a request handle. Application
+launch and any user choice happen asynchronously.
 
-The request and response limit is 16 KiB. The guest has a five-second overall
-timeout and the host has a three-second per-connection I/O deadline.
-`ok: true` reports that the launcher passed its immediate failure window
-(200 ms). Actual application opening requires live confirmation. The UID
-check identifies the socket peer at user scope.
+The wrapper rejects file paths and `file:` URIs. Toolkit calls, `gio open`,
+direct D-Bus calls, and Snap-bundled utilities can bypass the wrapper and
+use their own bus selection and confinement rules.
 
-The wrapper handles PATH and absolute-path calls to the guest utility. Toolkit
-calls, `gio open`, direct D-Bus calls, portals, and Snap-bundled utilities can
-bypass it. The portal offers `OpenURI` for non-file URIs and `OpenFile` for file
-descriptors.
-
-[Host server](../internal/opener/opener.go) · [Guest client](../internal/opener/client.go) · [Guest command](../internal/guestcmd/open.go) · [Portal specification](https://flatpak.github.io/xdg-desktop-portal/docs/doc-org.freedesktop.portal.OpenURI.html)
+[Guest wrapper](../.workshop/host-integration/bin/xdg-open) · [Portal specification](https://flatpak.github.io/xdg-desktop-portal/docs/doc-org.freedesktop.portal.OpenURI.html)
 
 ## Host and guest lifecycle
 
 The [command entry point](../cmd/workshop-desktop/main.go) dispatches host and
-guest roles. Guest dispatch runs before host initialization, so the guest
-opener can run independently of the host lockfile, project directory setup,
-and desktop-user check. The dev build stages the same static binary for the
+guest roles. Guest dispatch runs before host initialization. The dev build
+stages the same static binary for the
 host-integration SDK to install at `/usr/local/bin/workshop-desktop`.
 
 [Connection setup](../internal/hostcmd/connect.go) stops the guest, remounts
@@ -119,7 +112,6 @@ root is `/tmp/workshop-desktop-<HOST-UID>-<PROJECT-ID>/`.
 | --- | --- | --- |
 | `session` | `host-integration:host-session` | `/mnt/workshop-host/session/bus` |
 | `pipewire` | `host-integration:host-pipewire` | `/mnt/workshop-host/pipewire/pipewire-0` |
-| `open` | `host-integration:host-open` | `/mnt/workshop-host/open/socket` |
 
 Host directories use mode 0700. Read-only mounts map ownership to guest UID
 and GID 1000 and allow clients to connect to the sockets. Service policy
@@ -151,7 +143,7 @@ desktop and GPU plugs and groups setup by capability.
 | Wayland | The SDK installs `wayland-info` so the Go launcher can verify that the display is reachable before starting an app. |
 | D-Bus | The SDK declares the filtered session-bus mount. App launchers select the host or local session bus through `guest launch`. |
 | Audio | The setup hook installs `dbus-user-session` and `pipewire-pulse`. It installs a compatibility service that starts on demand through the Go guest launcher, with systemd handling retries. It masks distribution PipeWire, Pulse socket activation, and WirePlumber units to prevent competing services. |
-| Host opening | The setup hook installs the staged static tool and wrapper. `dpkg-divert` preserves the packaged opener at `/usr/bin/xdg-open.distrib` when present and diverts future installs. |
+| Host URL opening | The setup hook installs `gdbus` from `libglib2.0-bin` and the wrapper. `dpkg-divert` preserves the packaged opener at `/usr/bin/xdg-open.distrib` when present and diverts future installs. |
 
 The shared hook checks for the staged binary before changing the guest.
 The Firefox SDK installs `snapd` and `dbus-user-session`, owns the native camera
@@ -219,6 +211,6 @@ the helpers and wrappers.
 | D-Bus | Authenticate to the proxy, exercise an allowed service and confirm denial for a disallowed one. Display, update, and close a notification and receive an action callback. Verify local systemd and snapd operation and usable portal document mounts. |
 | Camera | Enumerate devices, capture visible frames in Firefox, and test format negotiation, contention, website denial, hotplug, and disconnect. |
 | Audio | Verify real sinks and non-monitor sources, hear playback, record intelligible microphone audio, and test host denial and revocation. |
-| Opening | Exercise a web URL, mail handler, relative shared file, and local file URI. Verify rejection of non-shared paths and symlink escapes. Check toolkit, Snap, and portal callers separately. |
+| URL opening | Exercise HTTPS and `mailto:` with the guest wrapper and verify the host browser and mail handler. Check rejection of file paths and `file:` URIs, and verify the error when the host bus proxy is stopped. Check toolkit and Snap callers separately. |
 | Video | Play browser video with sound. Check screen sharing, hardware decode, and DRM independently where relevant. |
 | Lifecycle | Stop and restart the helpers, refresh or reboot the guest, and reconnect after host reboot. Confirm cleanup, recovery, and actionable errors on both sides. |

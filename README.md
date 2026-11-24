@@ -5,7 +5,7 @@ with a Workshop container. Use `dev` to build and test the bridge and `apps`
 to run Firefox, Any nightly, and Codex. The shared desktop
 integration provides a filtered session D-Bus connection,
 PipeWire audio through a security-context socket, Workshop's desktop and camera
-interfaces, and a guest `xdg-open` client that forwards requests to the host.
+interfaces, and a guest `xdg-open` wrapper that opens URLs through the host desktop portal.
 
 The [desktop integration guide](docs/desktop-integration.md) covers the
 capability boundaries, host and guest lifecycle, SDK setup,
@@ -28,7 +28,8 @@ The hook requires the staged binary. Its architecture must match the host and
 guest. The runtime SDKs need neither Go nor Python.
 
 The host needs Workshop/LXD with nested Snap support, a Wayland session,
-`xdg-dbus-proxy`, `pw-container`, `stdbuf`, and `xdg-open`. Host PipeWire must support
+a working XDG Desktop Portal, `xdg-dbus-proxy`, `pw-container`, and `stdbuf`.
+Host PipeWire must support
 SecurityContext and have a running session manager such as WirePlumber. See the [PipeWire socket requirements](docs/desktop-integration.md#audio).
 
 ```sh
@@ -54,13 +55,12 @@ To run a subset, use a comma-separated filter:
 ./bin/workshop-desktop host serve --only=pipewire,dbus
 ```
 
-The available handlers are `dbus`, `pipewire`, and `open`. You can also run
+The available handlers are `dbus` and `pipewire`. You can also run
 them separately:
 
 ```sh
 ./bin/workshop-desktop host dbus
 ./bin/workshop-desktop host pipewire
-./bin/workshop-desktop host open
 ```
 
 Wait for the handlers to report ready, then launch apps from another terminal:
@@ -83,13 +83,11 @@ for data and settings.
 ```sh
 workshop exec apps -- xdg-open https://example.com
 workshop exec apps -- xdg-open mailto:someone@example.com
-workshop exec apps -- xdg-open /project/README.md
 ```
 
-You can also run `workshop-desktop guest open URL|FILE` directly in the guest.
-
-Files must be shared under `/project`. For supported callers and how requests
-are handled, see the [host opener](docs/desktop-integration.md#host-opener).
+Run the host D-Bus helper before opening URLs. The wrapper accepts a single
+non-file URI and reports success when the portal returns a request handle.
+See [host URL opening](docs/desktop-integration.md#host-url-opening) for details.
 
 ## Automated tests and limits
 
@@ -99,14 +97,6 @@ all Go tests, including shell-wrapper checks.
 - [Host lifecycle](internal/host/host_test.go): capability locks, symlink/file
   rejection, child cancellation, unexpected process exit, and structured child
   output.
-- [Host opener](internal/opener/opener_test.go): URI validation, project path
-  boundaries, rejection of mismatched UIDs, launcher arguments and exit errors,
-  and server cancellation.
-- [Guest protocol](internal/opener/client_test.go): file normalization, an
-  in-memory client/server exchange, invalid or oversized messages, host errors,
-  and canceled requests.
-- [Guest CLI](internal/guestcmd/open_test.go): help/version output, argument
-  validation, argument preservation, and exit codes.
 - [PipeWire socket](internal/pipewire/socket_test.go): reject non-sockets and
   preserve the socket inode when publishing it.
 - [Connection setup](internal/hostcmd/connect_test.go): command order, mount paths,
@@ -119,19 +109,23 @@ all Go tests, including shell-wrapper checks.
 - [Logging](internal/logging/logging_test.go): split output lines and flushing
   trailing child output.
 - [SDK wrappers](tests/sdk_test.go): audio service environment, application
-  arguments and exit status, guest opener forwarding, Firefox’s delayed bus
+  arguments and exit status, portal URL routing and error propagation, Firefox’s delayed bus
   switch and missing-socket check, and refusing installation without a built
   binary, using fake commands rather than installing services.
 
 Tests do not open real host applications. Unix-socket tests skip when the sandbox
 prohibits binding. Actual peer-credential extraction, D-Bus filtering, Firefox
-installation and confinement, portal file access, and audio/camera behavior still
+installation and confinement, host URL handler behavior, and audio/camera behavior still
 need live validation.
 
 Use the [live acceptance checks](docs/desktop-integration.md#live-acceptance-checks)
 to verify desktop behavior in a connected workshop.
 
 ## Apply changes
+
+When upgrading from the dedicated opener bridge, stop any standalone
+`workshop-desktop host open` process before refreshing the apps workshop.
+Use `host dbus` or `host serve` for URL opening after the upgrade.
 
 Rebuild after Go changes. For guest SDK changes, stop the helpers, build, run
 `workshop refresh apps`, reconnect with `bin/workshop-desktop host connect`,

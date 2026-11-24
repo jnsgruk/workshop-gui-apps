@@ -16,9 +16,9 @@ func TestSelectHandlers(t *testing.T) {
 		want  []string
 	}{
 		{"pipewire,dbus", []string{"pipewire", "dbus"}},
-		{"open", []string{"open"}},
-		{"dbus,pipewire,open", []string{"dbus", "pipewire", "open"}},
-		{" dbus , dbus,open ", []string{"dbus", "open"}},
+		{"pipewire", []string{"pipewire"}},
+		{"dbus,pipewire", []string{"dbus", "pipewire"}},
+		{" dbus , dbus,pipewire ", []string{"dbus", "pipewire"}},
 	} {
 		t.Run(tc.value, func(t *testing.T) {
 			selected, err := selectHandlers(tc.value)
@@ -34,7 +34,7 @@ func TestSelectHandlers(t *testing.T) {
 			}
 		})
 	}
-	for _, value := range []string{"", "unknown", "dbus,", ",dbus", "dbus,,open", "connect", "serve"} {
+	for _, value := range []string{"", "unknown", "dbus,", ",dbus", "dbus,,pipewire", "open", "connect", "serve"} {
 		if _, err := selectHandlers(value); err == nil {
 			t.Errorf("accepted %q", value)
 		}
@@ -43,7 +43,7 @@ func TestSelectHandlers(t *testing.T) {
 
 func TestServeAcquiresAllLocksBeforeStarting(t *testing.T) {
 	p := host.Project{Root: t.TempDir()}
-	lock, err := p.Lock("open")
+	lock, err := p.Lock("pipewire")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -53,7 +53,7 @@ func TestServeAcquiresAllLocksBeforeStarting(t *testing.T) {
 		started <- struct{}{}
 		return nil
 	}
-	if err := runHandlers(context.Background(), p, []handler{{"dbus", run}, {"open", run}}); err == nil {
+	if err := runHandlers(context.Background(), p, []handler{{"dbus", run}, {"pipewire", run}}); err == nil {
 		t.Fatal("ignored lock conflict")
 	}
 	if len(started) != 0 {
@@ -88,7 +88,7 @@ func TestServeFailureCancelsAndWaitsForSiblingCleanup(t *testing.T) {
 					close(cleaned)
 					return ctx.Err()
 				}},
-				{"open", func(ctx context.Context, _ host.Project) error {
+				{"pipewire", func(ctx context.Context, _ host.Project) error {
 					select {
 					case <-started:
 					case <-ctx.Done():
@@ -108,7 +108,7 @@ func TestServeFailureCancelsAndWaitsForSiblingCleanup(t *testing.T) {
 			default:
 				t.Fatal("returned before sibling cleanup")
 			}
-			for _, name := range []string{"dbus", "open"} {
+			for _, name := range []string{"dbus", "pipewire"} {
 				lock, err := p.Lock(name)
 				if err != nil {
 					t.Fatal("leaked lock:", err)
@@ -122,7 +122,7 @@ func TestServeFailureCancelsAndWaitsForSiblingCleanup(t *testing.T) {
 func TestServeCancellationOnlyLocksSelectedHandlers(t *testing.T) {
 	p := host.Project{Root: t.TempDir()}
 	// An unselected handler may already be running.
-	lock, err := p.Lock("open")
+	lock, err := p.Lock("pipewire")
 	if err != nil {
 		t.Fatal(err)
 	}
