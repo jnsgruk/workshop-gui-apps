@@ -29,7 +29,7 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	case "connect":
 		var name string
 		register = func(flags *flag.FlagSet) {
-			flags.StringVar(&name, "workshop", "firefox", "workshop name (must match its definition)")
+			flags.StringVar(&name, "workshop", "apps", "workshop name (must match its definition)")
 		}
 		operation = func(ctx context.Context, p host.Project) error { return connect(ctx, p, name) }
 	case "serve":

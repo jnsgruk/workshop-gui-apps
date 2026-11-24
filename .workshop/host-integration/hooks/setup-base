@@ -1,6 +1,15 @@
 #!/bin/bash
 set -euo pipefail
 
+# The dev workshop builds one static host/guest binary; the runtime SDK needs no compiler.
+if [ ! -x "$SDK/bin/workshop-desktop" ]; then
+  echo 'Build workshop-desktop first: workshop run dev -- build; then launch or refresh apps.' >&2
+  exit 1
+fi
+
+# D-Bus: the SDK mount supplies the filtered session bus. Apps opt in.
+
+# Audio: install the guest PulseAudio compatibility service and wrapper.
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
 apt-get install -y --no-install-recommends pipewire-pulse dbus-user-session
@@ -17,3 +26,10 @@ install -m 0755 "$SDK/bin/workshop-host-audio" /usr/local/bin/workshop-host-audi
 # Start on demand through the wrapper, rather than for every user login.
 systemctl --global disable workshop-pipewire-pulse.service
 rm -f /etc/profile.d/workshop-host-audio.sh
+
+# Host opening: install the client and divert the guest opener.
+# Cover PATH and absolute-path callers. Preserve xdg-utils' utility if present,
+# and divert future package installs too; the client does not need xdg-utils.
+dpkg-divert --local --rename --add /usr/bin/xdg-open
+install -m 0755 "$SDK/bin/workshop-desktop" /usr/local/bin/workshop-desktop
+install -m 0755 "$SDK/bin/xdg-open" /usr/bin/xdg-open

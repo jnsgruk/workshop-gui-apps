@@ -10,7 +10,7 @@ import (
 	"workshop-desktop/internal/host"
 )
 
-func TestConnectOrdersMountsAndUsesFirefoxDesktopPlug(t *testing.T) {
+func TestConnectOrdersAppsMountsAndInterfaces(t *testing.T) {
 	root := t.TempDir()
 	log := filepath.Join(root, "calls")
 	script := `#!/bin/sh
@@ -20,7 +20,7 @@ if [ "$1" = remount ] && [ "$CONNECT_TEST_FAIL" = 1 ]; then
 fi
 if [ "$1" = connect ] && [ "$CONNECT_TEST_ALREADY" = 1 ]; then
   capability=${2##*:}
-  printf 'error: cannot perform the following tasks:\n- Connect "%s" to "firefox/system:%s" (%s interface already connected)\n' "$2" "$capability" "$capability"
+  printf 'error: cannot perform the following tasks:\n- Connect "%s" to "apps/system:%s" (%s interface already connected)\n' "$2" "$capability" "$capability"
   exit 1
 fi
 `
@@ -33,7 +33,7 @@ fi
 	t.Setenv("CONNECT_TEST_ALREADY", "1")
 	p := host.Project{Directory: root, Root: root}
 
-	if err := connect(context.Background(), p, "firefox"); err != nil {
+	if err := connect(context.Background(), p, "apps"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -43,13 +43,13 @@ fi
 	}
 
 	want := strings.Join([]string{
-		"stop firefox",
-		"remount firefox/host-dbus:host-session " + filepath.Join(root, "session"),
-		"remount firefox/host-audio:host-pipewire " + filepath.Join(root, "pipewire"),
-		"remount firefox/host-open:host-open " + filepath.Join(root, "open"),
-		"start firefox",
-		"connect firefox/firefox-desktop:desktop",
-		"connect firefox/firefox-desktop:camera",
+		"stop apps",
+		"remount apps/host-integration:host-session " + filepath.Join(root, "session"),
+		"remount apps/host-integration:host-pipewire " + filepath.Join(root, "pipewire"),
+		"remount apps/host-integration:host-open " + filepath.Join(root, "open"),
+		"start apps",
+		"connect apps/host-integration:desktop",
+		"connect apps/firefox:camera",
 		"",
 	}, "\n")
 	if string(data) != want {
@@ -61,7 +61,7 @@ fi
 	if err := os.WriteFile(log, nil, 0600); err != nil {
 		t.Fatal(err)
 	}
-	if err := connect(context.Background(), p, "firefox"); err == nil {
+	if err := connect(context.Background(), p, "apps"); err == nil {
 		t.Fatal("ignored remount failure")
 	}
 
@@ -69,7 +69,7 @@ fi
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(data), "start firefox") {
+	if strings.Contains(string(data), "start apps") {
 		t.Fatal("started workshop after failed remount")
 	}
 }

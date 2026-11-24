@@ -1,0 +1,37 @@
+name: host-integration
+base: ubuntu@24.04
+summary: Shared Wayland, D-Bus, audio, and host opener integration
+
+plugs:
+  desktop:
+    interface: desktop
+  gpu:
+    interface: gpu
+
+  host-session:
+    interface: mount
+    # Keep mounts outside /run so runtime setup cannot hide them. Applications
+    # select this bus explicitly; their own local buses remain available.
+    workshop-target: /mnt/workshop-host/session
+    uid: 1000
+    gid: 1000
+    mode: 0700
+    # Clients connect to sockets; only the host helper may replace them.
+    read-only: true
+
+  host-pipewire:
+    interface: mount
+    # Preserve native PipeWire file-descriptor passing; do not byte-relay it.
+    workshop-target: /mnt/workshop-host/pipewire
+    uid: 1000
+    gid: 1000
+    mode: 0700
+    read-only: true
+
+  host-open:
+    interface: mount
+    workshop-target: /mnt/workshop-host/open
+    uid: 1000
+    gid: 1000
+    mode: 0700
+    read-only: true

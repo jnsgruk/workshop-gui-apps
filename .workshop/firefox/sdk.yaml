@@ -1,0 +1,11 @@
+name: firefox
+base: ubuntu@24.04
+summary: Wayland Firefox Snap with a persistent profile and camera access
+
+plugs:
+  camera:
+    interface: camera
+  profile:
+    interface: mount
+    workshop-target: /home/workshop/snap/firefox
+    mode: 0700

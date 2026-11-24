@@ -47,14 +47,14 @@ func connect(ctx context.Context, p host.Project, name string) error {
 		return err
 	}
 
-	mounts := []struct{ sdk, plug, directory string }{
-		{"host-dbus", "host-session", "session"},
-		{"host-audio", "host-pipewire", "pipewire"},
-		{"host-open", "host-open", "open"},
+	mounts := []struct{ plug, directory string }{
+		{"host-session", "session"},
+		{"host-pipewire", "pipewire"},
+		{"host-open", "open"},
 	}
 
 	for _, mount := range mounts {
-		if err := run("remount", name+"/"+mount.sdk+":"+mount.plug, filepath.Join(p.Root, mount.directory)); err != nil {
+		if err := run("remount", name+"/host-integration:"+mount.plug, filepath.Join(p.Root, mount.directory)); err != nil {
 			return fmt.Errorf("remount failed; workshop remains stopped: %w", err)
 		}
 	}
@@ -63,8 +63,12 @@ func connect(ctx context.Context, p host.Project, name string) error {
 		return err
 	}
 
-	for _, capability := range []string{"desktop", "camera"} {
-		if err := connectInterface(ctx, p.Directory, name, capability); err != nil {
+	interfaces := []struct{ sdk, capability string }{
+		{"host-integration", "desktop"},
+		{"firefox", "camera"},
+	}
+	for _, iface := range interfaces {
+		if err := connectInterface(ctx, p.Directory, name, iface.sdk, iface.capability); err != nil {
 			return err
 		}
 	}
@@ -73,8 +77,8 @@ func connect(ctx context.Context, p host.Project, name string) error {
 	return nil
 }
 
-func connectInterface(ctx context.Context, directory, name, capability string) error {
-	plug := name + "/firefox-desktop:" + capability
+func connectInterface(ctx context.Context, directory, name, sdk, capability string) error {
+	plug := name + "/" + sdk + ":" + capability
 	slot := name + "/system:" + capability
 	cmd := exec.CommandContext(ctx, "workshop", "connect", plug)
 	cmd.Dir = directory

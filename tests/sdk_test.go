@@ -14,7 +14,7 @@ import (
 func TestAudioWrapperPreservesApplicationEnvironmentAndArguments(t *testing.T) {
 	root := t.TempDir()
 	log := filepath.Join(root, "service")
-	wrapper, err := filepath.Abs("../.workshop/host-audio/bin/workshop-host-audio")
+	wrapper, err := filepath.Abs("../.workshop/host-integration/bin/workshop-host-audio")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -67,7 +67,7 @@ func TestAudioWrapperPreservesApplicationEnvironmentAndArguments(t *testing.T) {
 }
 
 func TestOpenerInstallRequiresBuiltClientBeforeChangingGuest(t *testing.T) {
-	hook, err := filepath.Abs("../.workshop/host-open/hooks/setup-base")
+	hook, err := filepath.Abs("../.workshop/host-integration/hooks/setup-base")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -85,7 +85,7 @@ func TestOpenerInstallRequiresBuiltClientBeforeChangingGuest(t *testing.T) {
 }
 
 func TestGuestOpenerWrapperPreservesArgumentsAndExitStatus(t *testing.T) {
-	wrapper, err := os.ReadFile("../.workshop/host-open/bin/xdg-open")
+	wrapper, err := os.ReadFile("../.workshop/host-integration/bin/xdg-open")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -111,7 +111,7 @@ func TestGuestOpenerWrapperPreservesArgumentsAndExitStatus(t *testing.T) {
 }
 
 func TestFirefoxWrapperSwitchesBusAfterSnapAndChecksSocket(t *testing.T) {
-	wrapper, err := os.ReadFile("../.workshop/firefox-desktop/bin/workshop-firefox")
+	wrapper, err := os.ReadFile("../.workshop/firefox/bin/workshop-firefox")
 	if err != nil {
 		t.Fatal(err)
 	}

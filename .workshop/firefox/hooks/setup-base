@@ -7,7 +7,7 @@ apt-get install -y --no-install-recommends snapd dbus-user-session
 
 install -m 0755 "$SDK/bin/workshop-firefox" /usr/local/bin/workshop-firefox
 
-# Snap-specific adaptation of the generic host-dbus mount. This stays with
+# Snap-specific adaptation of the shared host session-bus mount. This stays with
 # Firefox because another application may require a different confined path.
 # Migrate from the old mount over the entire writable Snap runtime directory.
 # The following reconnect/reboot removes the old active mount.

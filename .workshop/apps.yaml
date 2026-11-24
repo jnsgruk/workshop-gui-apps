@@ -1,0 +1,11 @@
+name: apps
+base: ubuntu@24.04
+
+sdks:
+  - name: codex
+  - name: project-host-integration
+  - name: project-firefox
+
+actions:
+  firefox: |
+    exec /usr/local/bin/workshop-host-audio /usr/local/bin/workshop-firefox "$@"
