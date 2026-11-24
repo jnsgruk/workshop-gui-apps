@@ -1,3 +1,17 @@
 name: any
-base: ubuntu@24.04
+base: ubuntu@26.04
 summary: Any nightly AppImage with Wayland and host desktop services
+
+plugs:
+  backend-data:
+    interface: mount
+    workshop-target: /home/workshop/.any-nightly
+    mode: 0700
+  desktop-data:
+    interface: mount
+    workshop-target: /home/workshop/.local/share/io.anyproto.any.nightly
+    mode: 0700
+  desktop-config:
+    interface: mount
+    workshop-target: /home/workshop/.config/io.anyproto.any.nightly
+    mode: 0700

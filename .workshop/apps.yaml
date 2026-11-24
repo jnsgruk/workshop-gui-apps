@@ -1,5 +1,5 @@
 name: apps
-base: ubuntu@24.04
+base: ubuntu@26.04
 
 sdks:
   - name: codex
@@ -10,7 +10,7 @@ sdks:
 
 actions:
   firefox: |
-    exec /usr/local/bin/workshop-host-audio /usr/local/bin/workshop-firefox "$@"
+    exec /usr/local/bin/workshop-firefox "$@"
 
   any: |
     exec /usr/local/bin/workshop-appimage "$@"

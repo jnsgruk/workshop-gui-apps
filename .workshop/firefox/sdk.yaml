@@ -1,5 +1,5 @@
 name: firefox
-base: ubuntu@24.04
+base: ubuntu@26.04
 summary: Wayland Firefox Snap with a persistent profile and camera access
 
 plugs:
