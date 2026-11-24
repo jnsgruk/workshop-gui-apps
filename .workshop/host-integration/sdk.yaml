@@ -12,6 +12,7 @@ plugs:
     interface: mount
     # Keep mounts outside /run so runtime setup cannot hide them. Applications
     # select this bus explicitly; their own local buses remain available.
+    # The host proxy also forwards Secret Service for Any's remembered sign-in.
     workshop-target: /mnt/workshop-host/session
     uid: 1000
     gid: 1000

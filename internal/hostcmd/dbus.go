@@ -27,7 +27,8 @@ func runDBus(ctx context.Context, p host.Project) error {
 	process, err := host.Start(ctx, nil, "xdg-dbus-proxy", address, socket, "--filter",
 		"--talk=org.freedesktop.Notifications",
 		"--talk=org.freedesktop.portal.Desktop",
-		"--talk=org.freedesktop.portal.Documents")
+		"--talk=org.freedesktop.portal.Documents",
+		"--talk=org.freedesktop.secrets")
 	if err != nil {
 		return err
 	}
