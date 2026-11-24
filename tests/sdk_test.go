@@ -14,8 +14,17 @@ import (
 func TestAudioWrapperPreservesApplicationEnvironmentAndArguments(t *testing.T) {
 	root := t.TempDir()
 	log := filepath.Join(root, "service")
-	wrapper, err := filepath.Abs("../.workshop/host-integration/bin/workshop-host-audio")
+	content, err := os.ReadFile("../.workshop/host-integration/bin/workshop-host-audio")
 	if err != nil {
+		t.Fatal(err)
+	}
+
+	binary := filepath.Join(root, "workshop-desktop")
+	if output, err := exec.Command("go", "build", "-o", binary, "../cmd/workshop-desktop").CombinedOutput(); err != nil {
+		t.Fatalf("build guest commands: %v, %s", err, output)
+	}
+	wrapper := filepath.Join(root, "workshop-host-audio")
+	if err := os.WriteFile(wrapper, []byte(strings.Replace(string(content), "/usr/local/bin/workshop-desktop", binary, 1)), 0700); err != nil {
 		t.Fatal(err)
 	}
 
@@ -120,14 +129,17 @@ func TestFirefoxWrapperSwitchesBusAfterSnapAndChecksSocket(t *testing.T) {
 	// untouched. The fake snap executes the real inner shell command.
 	socket := filepath.Join(root, "bus")
 	content := strings.ReplaceAll(string(wrapper), "/run/user/1000/snap.firefox/hostbus/bus", socket)
+	content = strings.Replace(content, "/usr/local/bin/workshop-desktop", filepath.Join(root, "workshop-desktop"), 1)
 	path := filepath.Join(root, "workshop-firefox")
 	for name, script := range map[string]string{
 		"workshop-firefox": content,
-		"id":               "#!/bin/sh\nprintf '1000\\n'\n",
+		"workshop-desktop": `#!/bin/sh
+[ "$1 $2 $3" = 'guest launch --session-bus=local' ] || exit 90
+shift 3
+exec "$@"
+`,
 		"snap": `#!/bin/sh
-[ "$DBUS_SESSION_BUS_ADDRESS" = unix:path=/run/user/1000/bus ] || exit 90
-[ "$XDG_RUNTIME_DIR" = /run/user/1000 ] || exit 91
-[ "${DBUS_SYSTEM_BUS_ADDRESS+x}" != x ] || exit 92
+[ "$MOZ_ENABLE_WAYLAND" = 1 ] || exit 91
 [ "$1 $2 $3" = 'run --shell firefox' ] || exit 93
 shift 3
 exec /bin/bash "$@"
@@ -143,9 +155,7 @@ exit 7
 	}
 	t.Setenv("PATH", root)
 	t.Setenv("SNAP", root)
-	t.Setenv("WAYLAND_DISPLAY", "wayland-0")
 	t.Setenv("DBUS_SESSION_BUS_ADDRESS", "unix:path=/inherited-host-bus")
-	t.Setenv("DBUS_SYSTEM_BUS_ADDRESS", "unix:path=/inherited-system-bus")
 	args := []string{path, "argument with spaces", "$(not a shell command)"}
 	// Missing endpoints must produce an actionable error before starting Firefox.
 	output, err := exec.Command("/bin/bash", args...).CombinedOutput()

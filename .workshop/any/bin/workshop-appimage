@@ -1,39 +1,14 @@
 #!/bin/bash
 set -euo pipefail
 
-if [ "$(id -u)" != 1000 ]; then
-  echo 'Run the AppImage as the workshop user (UID 1000).' >&2
-  exit 1
-fi
-
 image=/opt/any/Any.AppImage
 if [ ! -x "$image" ]; then
   echo 'The Any nightly AppImage is missing. Run workshop refresh apps to install it.' >&2
   exit 1
 fi
 
-export XDG_RUNTIME_DIR=/run/user/1000
-if [ -z "${WAYLAND_DISPLAY:-}" ]; then
-  echo 'A Wayland display is required. Run workshop-desktop host connect from your host graphical session.' >&2
-  exit 1
-fi
-if ! timeout 10 wayland-info >/dev/null; then
-  echo 'Cannot connect to the Wayland display. Reconnect the workshop from your host graphical session.' >&2
-  exit 1
-fi
-if [ ! -S /mnt/workshop-host/session/bus ]; then
-  echo 'Host session D-Bus socket is missing. Keep workshop-desktop host serve running.' >&2
-  exit 1
-fi
-if [ ! -S /mnt/workshop-host/pipewire/pipewire-0 ]; then
-  echo 'Host PipeWire socket is missing. Keep workshop-desktop host serve running.' >&2
-  exit 1
-fi
-
 cd /project
-export DBUS_SESSION_BUS_ADDRESS=unix:path=/mnt/workshop-host/session/bus
-unset DBUS_SYSTEM_BUS_ADDRESS
-export GDK_BACKEND=wayland ELECTRON_OZONE_PLATFORM_HINT=wayland
+export ELECTRON_OZONE_PLATFORM_HINT=wayland
 # Explicitly use AppImage extraction, so the guest does not require /dev/fuse.
-exec /usr/local/bin/workshop-host-audio "$image" \
+exec /usr/local/bin/workshop-desktop guest launch --session-bus=host "$image" \
   --appimage-extract-and-run --ozone-platform=wayland "$@"

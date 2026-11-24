@@ -13,7 +13,8 @@ import (
 func main() { os.Exit(run(os.Args[1:], os.Stdout, os.Stderr)) }
 
 func run(args []string, stdout, stderr io.Writer) int {
-	const usage = "Usage: workshop-desktop host {connect|serve|dbus|pipewire|open} [OPTIONS]\n       workshop-desktop guest open URL|FILE"
+	const guestUsage = "Usage: workshop-desktop guest open URL|FILE\n" + guestcmd.LaunchUsage
+	const usage = "Usage: workshop-desktop host {connect|serve|dbus|pipewire|open} [OPTIONS]\n       workshop-desktop guest {open|launch} [OPTIONS]"
 	if len(args) == 0 {
 		fmt.Fprintln(stderr, usage)
 		return 2
@@ -26,11 +27,18 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return hostcmd.Run(args[1:], stdout, stderr)
 	case "guest":
 		if len(args) == 2 && (args[1] == "--help" || args[1] == "-h") {
-			fmt.Fprintln(stdout, "Usage: workshop-desktop guest open URL|FILE")
+			fmt.Fprintln(stdout, guestUsage)
 			return 0
 		}
-		if len(args) >= 2 && args[1] == "open" {
-			return guestcmd.Run(args[2:], stdout, stderr)
+		if len(args) >= 2 {
+			switch args[1] {
+			case "open":
+				return guestcmd.Run(args[2:], stdout, stderr)
+			case "launch":
+				return guestcmd.Launch(args[2:], stdout, stderr)
+			case "audio":
+				return guestcmd.Audio(args[2:], stdout, stderr)
+			}
 		}
 	}
 	fmt.Fprintln(stderr, usage)
