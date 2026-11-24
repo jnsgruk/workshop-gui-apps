@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-
 	"workshop-desktop/internal/host"
 	"workshop-desktop/internal/logging"
 )
@@ -51,7 +50,7 @@ func runHandlers(ctx context.Context, p host.Project, selected []handler) error 
 		if err != nil {
 			return err
 		}
-		defer lock.Close()
+		defer func() { _ = lock.Close() }()
 	}
 
 	ctx, cancel := context.WithCancel(ctx)

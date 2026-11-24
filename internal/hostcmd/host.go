@@ -6,7 +6,6 @@ import (
 	"flag"
 	"fmt"
 	"io"
-
 	"workshop-desktop/internal/host"
 	"workshop-desktop/internal/logging"
 )
@@ -15,11 +14,11 @@ import (
 func Run(args []string, stdout, stderr io.Writer) int {
 	const usage = "Usage: workshop-desktop host {connect|serve|dbus|pipewire} [--project PATH]\n       workshop-desktop host connect [--workshop NAME]\n       workshop-desktop host serve [--only=dbus,pipewire]"
 	if len(args) == 0 {
-		fmt.Fprintln(stderr, usage)
+		_, _ = fmt.Fprintln(stderr, usage)
 		return 2
 	}
 	if args[0] == "--help" || args[0] == "-h" {
-		fmt.Fprintln(stdout, usage)
+		_, _ = fmt.Fprintln(stdout, usage)
 		return 0
 	}
 	var register func(*flag.FlagSet)
@@ -47,7 +46,7 @@ func Run(args []string, stdout, stderr io.Writer) int {
 		operation = func(ctx context.Context, p host.Project) error { return runHandlers(ctx, p, selected) }
 	default:
 		logging.New(stderr).Error("unknown host command", "command", capability)
-		fmt.Fprintln(stderr, usage)
+		_, _ = fmt.Fprintln(stderr, usage)
 		return 2
 	}
 	return host.Run(capability, args[1:], stderr, register, operation)

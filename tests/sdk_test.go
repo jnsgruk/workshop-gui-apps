@@ -22,12 +22,12 @@ func TestAudioWrapperPreservesApplicationEnvironmentAndArguments(t *testing.T) {
 		t.Fatalf("build guest commands: %v, %s", err, output)
 	}
 	wrapper := filepath.Join(root, "workshop-host-audio")
-	if err := os.WriteFile(wrapper, []byte(strings.Replace(string(content), "/usr/local/bin/workshop-desktop", binary, 1)), 0700); err != nil {
+	if err := os.WriteFile(wrapper, []byte(strings.Replace(string(content), "/usr/local/bin/workshop-desktop", binary, 1)), 0o700); err != nil {
 		t.Fatal(err)
 	}
 
 	script := "#!/bin/sh\nprintf '%s\\n' \"$XDG_RUNTIME_DIR\" \"$DBUS_SESSION_BUS_ADDRESS\" \"$@\" > \"$AUDIO_TEST_LOG\"\nexit \"${AUDIO_TEST_STATUS:-0}\"\n"
-	if err := os.WriteFile(filepath.Join(root, "systemctl"), []byte(script), 0755); err != nil {
+	if err := os.WriteFile(filepath.Join(root, "systemctl"), []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
 
@@ -38,7 +38,8 @@ func TestAudioWrapperPreservesApplicationEnvironmentAndArguments(t *testing.T) {
 	t.Setenv("PULSE_SERVER", "old-server")
 	t.Setenv("AUDIO_TEST_STATUS", "0")
 
-	args := []string{wrapper, "/bin/sh", "-c",
+	args := []string{
+		wrapper, "/bin/sh", "-c",
 		`printf '%s\n' "$XDG_RUNTIME_DIR" "$DBUS_SESSION_BUS_ADDRESS" "$PULSE_SERVER" "$@"; exit 7`,
 		"application", "argument with spaces", "$(not a shell command)",
 	}
@@ -106,7 +107,7 @@ if [ "$OPENER_TEST_FAIL" = 1 ]; then
     exit 4
 fi
 `
-	if err := os.WriteFile(filepath.Join(root, "gdbus"), []byte(script), 0700); err != nil {
+	if err := os.WriteFile(filepath.Join(root, "gdbus"), []byte(script), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", root)
@@ -191,12 +192,12 @@ func TestSetupInstallsStagedLauncherAndGuestWrappers(t *testing.T) {
 	guest := t.TempDir()
 	tools := t.TempDir()
 	for _, path := range []string{"bin", "hooks", "systemd"} {
-		if err := os.Mkdir(filepath.Join(sdk, path), 0700); err != nil {
+		if err := os.Mkdir(filepath.Join(sdk, path), 0o700); err != nil {
 			t.Fatal(err)
 		}
 	}
 	for _, path := range []string{"usr/bin", "usr/local/bin", "etc/systemd/user", "etc/profile.d", "var/lib/dpkg"} {
-		if err := os.MkdirAll(filepath.Join(guest, path), 0700); err != nil {
+		if err := os.MkdirAll(filepath.Join(guest, path), 0o700); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -205,7 +206,7 @@ func TestSetupInstallsStagedLauncherAndGuestWrappers(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(filepath.Join(sdk, path), content, 0700); err != nil {
+		if err := os.WriteFile(filepath.Join(sdk, path), content, 0o700); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -216,11 +217,11 @@ func TestSetupInstallsStagedLauncherAndGuestWrappers(t *testing.T) {
 	}
 	const packagedOpener = "packaged xdg-open"
 	opener := filepath.Join(guest, "usr/bin/xdg-open")
-	if err := os.WriteFile(opener, []byte(packagedOpener), 0755); err != nil {
+	if err := os.WriteFile(opener, []byte(packagedOpener), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	profile := filepath.Join(guest, "etc/profile.d/workshop-host-audio.sh")
-	if err := os.WriteFile(profile, []byte("old profile"), 0644); err != nil {
+	if err := os.WriteFile(profile, []byte("old profile"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -244,7 +245,7 @@ exec "$SETUP_TEST_REMOVE" "$1" "$SETUP_TEST_ROOT$2"
 exec "$SETUP_TEST_DIVERT" --root "$SETUP_TEST_ROOT" "$@"
 `,
 	} {
-		if err := os.WriteFile(filepath.Join(tools, name), []byte(script), 0700); err != nil {
+		if err := os.WriteFile(filepath.Join(tools, name), []byte(script), 0o700); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -264,10 +265,10 @@ exec "$SETUP_TEST_DIVERT" --root "$SETUP_TEST_ROOT" "$@"
 			source, target string
 			mode           os.FileMode
 		}{
-			{"bin/workshop-desktop", "usr/local/bin/workshop-desktop", 0755},
-			{"bin/workshop-host-audio", "usr/local/bin/workshop-host-audio", 0755},
-			{"bin/xdg-open", "usr/bin/xdg-open", 0755},
-			{"systemd/workshop-pipewire-pulse.service", "etc/systemd/user/workshop-pipewire-pulse.service", 0644},
+			{"bin/workshop-desktop", "usr/local/bin/workshop-desktop", 0o755},
+			{"bin/workshop-host-audio", "usr/local/bin/workshop-host-audio", 0o755},
+			{"bin/xdg-open", "usr/bin/xdg-open", 0o755},
+			{"systemd/workshop-pipewire-pulse.service", "etc/systemd/user/workshop-pipewire-pulse.service", 0o644},
 		} {
 			want, err := os.ReadFile(filepath.Join(sdk, tc.source))
 			if err != nil {

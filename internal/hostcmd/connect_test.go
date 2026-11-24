@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-
 	"workshop-desktop/internal/host"
 )
 
@@ -37,7 +36,7 @@ if [ "$1 $2" = 'connect apps/host-integration:desktop' ]; then
   esac
 fi
 `
-	if err := os.WriteFile(filepath.Join(root, "workshop"), []byte(script), 0700); err != nil {
+	if err := os.WriteFile(filepath.Join(root, "workshop"), []byte(script), 0o700); err != nil {
 		t.Fatal(err)
 	}
 
@@ -65,7 +64,7 @@ fi
 	} {
 		t.Run(tc.mode, func(t *testing.T) {
 			t.Setenv("CONNECT_TEST_MODE", tc.mode)
-			if err := os.WriteFile(log, nil, 0600); err != nil {
+			if err := os.WriteFile(log, nil, 0o600); err != nil {
 				t.Fatal(err)
 			}
 			err := connect(context.Background(), p, "apps")
@@ -102,7 +101,7 @@ func TestConnectAcquiresBothLocksBeforeCallingWorkshop(t *testing.T) {
 	t.Setenv("CONNECT_TEST_LOG", calls)
 	if err := os.WriteFile(filepath.Join(root, "workshop"), []byte(`#!/bin/sh
 printf '%s\n' "$*" >> "$CONNECT_TEST_LOG"
-`), 0700); err != nil {
+`), 0o700); err != nil {
 		t.Fatal(err)
 	}
 
@@ -113,7 +112,7 @@ printf '%s\n' "$*" >> "$CONNECT_TEST_LOG"
 			if err != nil {
 				t.Fatal(err)
 			}
-			defer lock.Close()
+			defer func() { _ = lock.Close() }()
 			if err := connect(context.Background(), p, "apps"); err == nil || !strings.Contains(err.Error(), name+" helper already running") {
 				t.Fatalf("connect did not report %s lock contention: %v", name, err)
 			}
@@ -126,5 +125,5 @@ printf '%s\n' "$*" >> "$CONNECT_TEST_LOG"
 	if err != nil {
 		t.Fatal("connect leaked the first lock:", err)
 	}
-	lock.Close()
+	_ = lock.Close()
 }

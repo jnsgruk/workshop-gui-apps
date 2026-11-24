@@ -7,7 +7,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
 	"workshop-desktop/internal/host"
 )
 
@@ -48,7 +47,7 @@ func TestServeAcquiresAllLocksBeforeStarting(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer lock.Close()
+	defer func() { _ = lock.Close() }()
 	started := make(chan struct{}, 2)
 	run := func(context.Context, host.Project) error {
 		started <- struct{}{}
@@ -65,7 +64,7 @@ func TestServeAcquiresAllLocksBeforeStarting(t *testing.T) {
 	if err != nil {
 		t.Fatal("leaked lock:", err)
 	}
-	other.Close()
+	_ = other.Close()
 }
 
 func TestServeFailureCancelsAndWaitsForSiblingCleanup(t *testing.T) {
@@ -83,7 +82,7 @@ func TestServeFailureCancelsAndWaitsForSiblingCleanup(t *testing.T) {
 					<-ctx.Done()
 					// Locks must remain held until cleanup finishes.
 					if lock, err := p.Lock("dbus"); err == nil {
-						lock.Close()
+						_ = lock.Close()
 						t.Error("released lock before cleanup")
 					}
 					close(cleaned)
@@ -117,7 +116,7 @@ func TestServeFailureCancelsAndWaitsForSiblingCleanup(t *testing.T) {
 				if err != nil {
 					t.Fatal("leaked lock:", err)
 				}
-				lock.Close()
+				_ = lock.Close()
 			}
 		})
 	}
@@ -130,7 +129,7 @@ func TestServeCancellationOnlyLocksSelectedHandlers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer lock.Close()
+	defer func() { _ = lock.Close() }()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	started := make(chan struct{})
@@ -150,7 +149,7 @@ func TestServeCancellationOnlyLocksSelectedHandlers(t *testing.T) {
 		t.Fatal("handler did not start")
 	}
 	if duplicate, err := p.Lock("dbus"); err == nil {
-		duplicate.Close()
+		_ = duplicate.Close()
 		t.Fatal("selected handler was not locked")
 	}
 	cancel()

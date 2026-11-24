@@ -15,7 +15,7 @@ func TestPublishRejectsInvalidSources(t *testing.T) {
 	root := t.TempDir()
 	t.Chdir(root)
 	file := filepath.Join(root, "file")
-	if err := os.WriteFile(file, nil, 0600); err != nil {
+	if err := os.WriteFile(file, nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	listener, err := net.Listen("unix", "relative")
@@ -25,7 +25,7 @@ func TestPublishRejectsInvalidSources(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer listener.Close()
+	defer func() { _ = listener.Close() }()
 
 	destination := filepath.Join(root, "destination")
 	for _, line := range []string{"", "relative", "new socket: relative", file} {
@@ -53,7 +53,7 @@ func TestPublishPreservesSocketInodeAndConnectivity(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			defer listener.Close()
+			defer func() { _ = listener.Close() }()
 
 			before, err := os.Lstat(source)
 			if err != nil {
@@ -81,12 +81,12 @@ func TestPublishPreservesSocketInodeAndConnectivity(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			defer client.Close()
+			defer func() { _ = client.Close() }()
 			server, err := listener.AcceptUnix()
 			if err != nil {
 				t.Fatal(err)
 			}
-			defer server.Close()
+			defer func() { _ = server.Close() }()
 			if err := server.SetDeadline(deadline); err != nil {
 				t.Fatal(err)
 			}

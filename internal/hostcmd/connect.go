@@ -8,7 +8,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-
 	"workshop-desktop/internal/host"
 	"workshop-desktop/internal/logging"
 )
@@ -24,7 +23,7 @@ func connect(ctx context.Context, p host.Project, name string) error {
 			return err
 		}
 
-		defer lock.Close()
+		defer func() { _ = lock.Close() }()
 	}
 
 	if _, err := exec.LookPath("workshop"); err != nil {

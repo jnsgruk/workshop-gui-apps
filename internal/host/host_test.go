@@ -17,7 +17,6 @@ import (
 	"syscall"
 	"testing"
 	"time"
-
 	"workshop-desktop/internal/logging"
 )
 
@@ -29,7 +28,7 @@ func TestLocksPreventDuplicateServersAndAllowOtherCapabilities(t *testing.T) {
 	}
 
 	if duplicate, err := p.Lock("dbus"); err == nil {
-		duplicate.Close()
+		_ = duplicate.Close()
 		t.Fatal("duplicate acquired lock")
 	}
 
@@ -37,13 +36,13 @@ func TestLocksPreventDuplicateServersAndAllowOtherCapabilities(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	other.Close()
-	lock.Close()
+	_ = other.Close()
+	_ = lock.Close()
 	lock, err = p.Lock("dbus")
 	if err != nil {
 		t.Fatal("lock not released:", err)
 	}
-	lock.Close()
+	_ = lock.Close()
 }
 
 func TestPrivatePathsAndSocketCleanupRejectSymlinksAndFiles(t *testing.T) {
@@ -63,12 +62,12 @@ func TestPrivatePathsAndSocketCleanupRejectSymlinksAndFiles(t *testing.T) {
 	}
 
 	if lock, err := p.Lock("dbus"); err == nil {
-		lock.Close()
+		_ = lock.Close()
 		t.Fatal("followed symlink lock")
 	}
 
 	file := filepath.Join(root, "file")
-	if err := os.WriteFile(file, []byte("keep"), 0600); err != nil {
+	if err := os.WriteFile(file, []byte("keep"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -84,7 +83,7 @@ func TestPrivatePathsAndSocketCleanupRejectSymlinksAndFiles(t *testing.T) {
 func TestLoadResolvesProjectAndSecuresEndpointDirectories(t *testing.T) {
 	parent := t.TempDir()
 	directory := filepath.Join(parent, "project")
-	if err := os.Mkdir(directory, 0700); err != nil {
+	if err := os.Mkdir(directory, 0o700); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.Symlink(directory, filepath.Join(parent, "linked")); err != nil {
@@ -97,7 +96,7 @@ func TestLoadResolvesProjectAndSecuresEndpointDirectories(t *testing.T) {
 	}
 	lock := filepath.Join(directory, ".workshop.lock")
 	for _, id := range []string{"", "../invalid", "invalid project", "two\nlines"} {
-		if err := os.WriteFile(lock, []byte(id), 0600); err != nil {
+		if err := os.WriteFile(lock, []byte(id), 0o600); err != nil {
 			t.Fatal(err)
 		}
 		if _, err := Load("linked"); err == nil || !strings.Contains(err.Error(), "invalid project ID") {
@@ -110,12 +109,12 @@ func TestLoadResolvesProjectAndSecuresEndpointDirectories(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { os.RemoveAll(root) })
+	t.Cleanup(func() { _ = os.RemoveAll(root) })
 	id := strings.TrimPrefix(filepath.Base(root), prefix)
-	if err := os.WriteFile(lock, []byte("  "+id+"\n"), 0600); err != nil {
+	if err := os.WriteFile(lock, []byte("  "+id+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Chmod(root, 0755); err != nil {
+	if err := os.Chmod(root, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	p, err := Load("linked")
@@ -130,7 +129,7 @@ func TestLoadResolvesProjectAndSecuresEndpointDirectories(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if !info.IsDir() || info.Mode().Perm() != 0700 {
+		if !info.IsDir() || info.Mode().Perm() != 0o700 {
 			t.Fatalf("endpoint directory %q has mode %v", path, info.Mode())
 		}
 	}
@@ -155,8 +154,8 @@ func TestProcessObservesParentCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	reader, writer := io.Pipe()
-	defer reader.Close()
-	defer writer.Close()
+	defer func() { _ = reader.Close() }()
+	defer func() { _ = writer.Close() }()
 	p := startProcessChild(t, ctx, "wait", func(cmd *exec.Cmd) { cmd.Stdout = writer })
 
 	ready := make(chan string, 1)
@@ -193,7 +192,7 @@ func TestProcessUnexpectedSuccess(t *testing.T) {
 func TestWaitSocketRequiresSocket(t *testing.T) {
 	p := startProcessChild(t, context.Background(), "wait", nil)
 	path := filepath.Join(t.TempDir(), "bus")
-	if err := os.WriteFile(path, nil, 0600); err != nil {
+	if err := os.WriteFile(path, nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	// Give WaitSocket time to observe the regular file before the caller deadline.
@@ -212,14 +211,13 @@ func TestWaitSocketRequiresSocket(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer socket.Close()
+	defer func() { _ = socket.Close() }()
 
 	ctx, cancel = context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	if err := p.WaitSocket(ctx, path); err != nil {
 		t.Fatal(err)
 	}
-
 }
 
 func TestWaitSocketReportsEarlyExit(t *testing.T) {
@@ -238,11 +236,11 @@ func TestProcessChild(t *testing.T) {
 	}
 	switch os.Getenv("WORKSHOP_TEST_CHILD") {
 	case "output":
-		fmt.Fprint(os.Stdout, "child output\ntrailing output")
+		_, _ = fmt.Fprint(os.Stdout, "child output\ntrailing output")
 		fmt.Fprint(os.Stderr, "child diagnostic\ntrailing diagnostic")
 		os.Exit(0) // Do not append the test runner's PASS line to stdout.
 	case "wait":
-		fmt.Fprintln(os.Stdout, "ready")
+		_, _ = fmt.Fprintln(os.Stdout, "ready")
 		time.Sleep(30 * time.Second)
 	case "success":
 		os.Exit(0)

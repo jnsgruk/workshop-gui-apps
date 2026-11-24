@@ -20,4 +20,8 @@ actions:
 
   fmt: |
     cd /project
-    exec gofmt -w cmd internal tests
+    exec go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.14.0 fmt
+
+  lint: |
+    cd /project
+    exec go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.14.0 run "$@"

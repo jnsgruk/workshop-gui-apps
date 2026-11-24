@@ -10,7 +10,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"time"
-
 	"workshop-desktop/internal/host"
 	"workshop-desktop/internal/logging"
 	"workshop-desktop/internal/pipewire"
@@ -26,7 +25,7 @@ func runPipeWire(ctx context.Context, p host.Project) error {
 		return err
 	}
 
-	defer os.Remove(socket)
+	defer func() { _ = os.Remove(socket) }()
 
 	properties, _ := json.Marshal(map[string]string{
 		"pipewire.sec.app-id":      "org.mozilla.firefox",
@@ -38,8 +37,8 @@ func runPipeWire(ctx context.Context, p host.Project) error {
 		return err
 	}
 
-	defer reader.Close()
-	defer writer.Close()
+	defer func() { _ = reader.Close() }()
+	defer func() { _ = writer.Close() }()
 
 	// Some pw-container versions do not flush their initial path on a pipe.
 	process, err := host.Start(ctx, func(cmd *exec.Cmd) { cmd.Stdout = writer }, "stdbuf", "-oL", "pw-container", "-P", string(properties))
@@ -47,7 +46,7 @@ func runPipeWire(ctx context.Context, p host.Project) error {
 		return err
 	}
 
-	writer.Close()
+	_ = writer.Close()
 	defer process.Stop()
 
 	lines := make(chan string, 1)

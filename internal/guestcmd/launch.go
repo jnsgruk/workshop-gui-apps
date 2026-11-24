@@ -29,10 +29,10 @@ func Launch(args []string, stdout, stderr io.Writer) int {
 func launch(args []string, stdout, stderr io.Writer, uid int, runtime, hostBusSocket, pipeWireSocket string) int {
 	flags := flag.NewFlagSet("launch", flag.ContinueOnError)
 	flags.SetOutput(stderr)
-	flags.Usage = func() { fmt.Fprintln(flags.Output(), LaunchUsage) }
+	flags.Usage = func() { _, _ = fmt.Fprintln(flags.Output(), LaunchUsage) }
 	bus := flags.String("session-bus", "", "session bus for the launched command")
 	if len(args) == 1 && (args[0] == "-h" || args[0] == "--help") {
-		fmt.Fprintln(stdout, LaunchUsage)
+		_, _ = fmt.Fprintln(stdout, LaunchUsage)
 		return 0
 	}
 	if err := flags.Parse(args); err != nil {
@@ -46,11 +46,11 @@ func launch(args []string, stdout, stderr io.Writer, uid int, runtime, hostBusSo
 		return 2
 	}
 	if uid != 1000 {
-		fmt.Fprintln(stderr, "Run the launcher as the workshop user (UID 1000).")
+		_, _ = fmt.Fprintln(stderr, "Run the launcher as the workshop user (UID 1000).")
 		return 1
 	}
 	if os.Getenv("WAYLAND_DISPLAY") == "" {
-		fmt.Fprintln(stderr, "A Wayland display is required. Run workshop-desktop host connect from your host graphical session.")
+		_, _ = fmt.Fprintln(stderr, "A Wayland display is required. Run workshop-desktop host connect from your host graphical session.")
 		return 1
 	}
 
@@ -60,7 +60,7 @@ func launch(args []string, stdout, stderr io.Writer, uid int, runtime, hostBusSo
 	probe.Env = append(os.Environ(), "XDG_RUNTIME_DIR="+runtime)
 	probe.Stderr = stderr
 	if err := probe.Run(); err != nil {
-		fmt.Fprintf(stderr, "Cannot connect to the Wayland display: %v. Reconnect the workshop from your host graphical session.\n", err)
+		_, _ = fmt.Fprintf(stderr, "Cannot connect to the Wayland display: %v. Reconnect the workshop from your host graphical session.\n", err)
 		return 1
 	}
 
@@ -69,11 +69,11 @@ func launch(args []string, stdout, stderr io.Writer, uid int, runtime, hostBusSo
 		socket = hostBusSocket
 	}
 	if !isSocket(socket) {
-		fmt.Fprintf(stderr, "Required session D-Bus socket is missing at %s. Check the guest user session and keep workshop-desktop host serve running.\n", socket)
+		_, _ = fmt.Fprintf(stderr, "Required session D-Bus socket is missing at %s. Check the guest user session and keep workshop-desktop host serve running.\n", socket)
 		return 1
 	}
 	if !isSocket(pipeWireSocket) {
-		fmt.Fprintln(stderr, "Host PipeWire socket is missing. Keep workshop-desktop host serve running.")
+		_, _ = fmt.Fprintln(stderr, "Host PipeWire socket is missing. Keep workshop-desktop host serve running.")
 		return 1
 	}
 
@@ -94,7 +94,7 @@ func isSocket(path string) bool {
 // Audio preserves the caller's environment for legacy workshop-host-audio callers.
 func Audio(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		fmt.Fprintln(stderr, "Usage: workshop-host-audio COMMAND [ARG...]")
+		_, _ = fmt.Fprintln(stderr, "Usage: workshop-host-audio COMMAND [ARG...]")
 		return 2
 	}
 	return startAudioAndExec(exec.Command(args[0], args[1:]...), stdout, stderr, guestRuntime)
@@ -109,17 +109,17 @@ func startAudioAndExec(cmd *exec.Cmd, stdout, stderr io.Writer, runtime string) 
 		if errors.As(err, &status) && status.ExitCode() > 0 {
 			return status.ExitCode()
 		}
-		fmt.Fprintln(stderr, err)
+		_, _ = fmt.Fprintln(stderr, err)
 		return 1
 	}
 
 	if cmd.Err != nil {
-		fmt.Fprintln(stderr, cmd.Err)
+		_, _ = fmt.Fprintln(stderr, cmd.Err)
 		return 127
 	}
 	cmd.Env = append(cmd.Environ(), "PULSE_SERVER=unix:"+runtime+"/pulse/native")
 	if err := syscall.Exec(cmd.Path, cmd.Args, cmd.Environ()); err != nil {
-		fmt.Fprintln(stderr, err)
+		_, _ = fmt.Fprintln(stderr, err)
 		return 126
 	}
 	return 0

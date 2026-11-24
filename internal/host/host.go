@@ -13,7 +13,6 @@ import (
 	"regexp"
 	"strings"
 	"syscall"
-
 	"workshop-desktop/internal/logging"
 )
 
@@ -62,7 +61,7 @@ func Load(directory string) (Project, error) {
 }
 
 func privateDirectory(path string) error {
-	if err := os.Mkdir(path, 0700); err != nil && !os.IsExist(err) {
+	if err := os.Mkdir(path, 0o700); err != nil && !os.IsExist(err) {
 		return err
 	}
 
@@ -75,20 +74,20 @@ func privateDirectory(path string) error {
 		return fmt.Errorf("not a directory owned by you: %s", path)
 	}
 
-	return os.Chmod(path, 0700)
+	return os.Chmod(path, 0o700)
 }
 
 // Lock is per capability: serving one capability does not require the others.
 // connect takes all three locks before changing mounts.
 func (p Project) Lock(capability string) (*os.File, error) {
-	fd, err := syscall.Open(filepath.Join(p.Root, capability+".lock"), syscall.O_CREAT|syscall.O_RDWR|syscall.O_NOFOLLOW|syscall.O_CLOEXEC, 0600)
+	fd, err := syscall.Open(filepath.Join(p.Root, capability+".lock"), syscall.O_CREAT|syscall.O_RDWR|syscall.O_NOFOLLOW|syscall.O_CLOEXEC, 0o600)
 	if err != nil {
 		return nil, err
 	}
 
 	f := os.NewFile(uintptr(fd), capability+".lock")
 	if err := syscall.Flock(fd, syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
-		f.Close()
+		_ = f.Close()
 		return nil, fmt.Errorf("%s helper already running; stop it before reconnecting", capability)
 	}
 
@@ -138,7 +137,7 @@ func Run(capability string, args []string, stderr io.Writer, register func(*flag
 		logger.Error("run as your desktop user, without sudo")
 		return 1
 	}
-	syscall.Umask(0077)
+	syscall.Umask(0o077)
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	ctx = logging.WithLogger(ctx, logger)
 

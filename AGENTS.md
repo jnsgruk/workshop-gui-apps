@@ -30,8 +30,10 @@ when it needs the updated shared binary.
 
 ## Testing
 
-`workshop run dev -- fmt` formats the Go source. `workshop run dev -- test` runs
-all Go tests, including shell-wrapper checks.
+`workshop run dev -- fmt` formats the Go source with golangci-lint’s bundled gofumpt.
+`workshop run dev -- lint` runs golangci-lint with its standard linters and checks
+gofumpt formatting. Both actions use the same pinned golangci-lint version and
+download it as needed. `workshop run dev -- test` runs all Go tests, including shell-wrapper checks.
 
 - Host lifecycle tests cover capability locks, symlink and file rejection,
   child cancellation, unexpected exits, and structured output. [Tests](internal/host/host_test.go)

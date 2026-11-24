@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-
 	"workshop-desktop/internal/host"
 	"workshop-desktop/internal/logging"
 )
@@ -22,7 +21,7 @@ func runDBus(ctx context.Context, p host.Project) error {
 		return err
 	}
 
-	defer os.Remove(socket)
+	defer func() { _ = os.Remove(socket) }()
 
 	process, err := host.Start(ctx, nil, "xdg-dbus-proxy", address, socket, "--filter",
 		"--talk=org.freedesktop.Notifications",

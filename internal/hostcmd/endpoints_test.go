@@ -14,7 +14,6 @@ import (
 	"syscall"
 	"testing"
 	"time"
-
 	"workshop-desktop/internal/host"
 	"workshop-desktop/internal/logging"
 )
@@ -50,7 +49,7 @@ func startEndpoint(t *testing.T, project host.Project, serve func(context.Contex
 	}()
 	t.Cleanup(func() {
 		cancel()
-		run.wait(t)
+		_ = run.wait(t)
 	})
 	return run
 }
@@ -93,9 +92,9 @@ func endpointProject(t *testing.T) host.Project {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { os.RemoveAll(root) })
+	t.Cleanup(func() { _ = os.RemoveAll(root) })
 	for _, dir := range []string{"session", "pipewire", "bin"} {
-		if err := os.Mkdir(filepath.Join(root, dir), 0700); err != nil {
+		if err := os.Mkdir(filepath.Join(root, dir), 0o700); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -108,7 +107,7 @@ func endpointProject(t *testing.T) host.Project {
 		script := `#!/bin/sh
 exec "$ENDPOINT_TEST_BINARY" -test.run='^TestEndpointChild$' -- endpoint-child "${0##*/}" "$@"
 `
-		if err := os.WriteFile(filepath.Join(bin, name), []byte(script), 0700); err != nil {
+		if err := os.WriteFile(filepath.Join(bin, name), []byte(script), 0o700); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -144,7 +143,7 @@ func assertEndpointSocket(t *testing.T, path string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	conn.Close()
+	_ = conn.Close()
 }
 
 func TestDBusProxyWaitsForSocketAndCleansUp(t *testing.T) {
@@ -158,7 +157,7 @@ func TestDBusProxyWaitsForSocketAndCleansUp(t *testing.T) {
 		t.Fatal(err)
 	}
 	stale.SetUnlinkOnClose(false)
-	stale.Close()
+	_ = stale.Close()
 
 	run := startEndpoint(t, p, runDBus)
 	run.waitForLogs(t, "proxy created a regular file")
@@ -169,7 +168,7 @@ func TestDBusProxyWaitsForSocketAndCleansUp(t *testing.T) {
 		t.Fatalf("proxy stopped during startup: %v", run.err)
 	case <-time.After(200 * time.Millisecond):
 	}
-	if err := os.WriteFile(filepath.Join(p.Root, "bind"), nil, 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(p.Root, "bind"), nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	run.waitForLogs(t, "Session D-Bus ready")
@@ -203,7 +202,7 @@ func TestPipeWirePublishesFirstLineAndCleansUp(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	probe.Close()
+	_ = probe.Close()
 	run := startEndpoint(t, p, runPipeWire)
 	run.waitForLogs(t, "PipeWire ready", "pw-container diagnostic")
 	socket := filepath.Join(p.Root, "pipewire", "pipewire-0")
@@ -271,7 +270,7 @@ func TestEndpointChild(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(root, "args"), data, 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(root, "args"), data, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	socket := filepath.Join(root, "source")
@@ -280,11 +279,11 @@ func TestEndpointChild(t *testing.T) {
 			t.Fatal("missing proxy socket argument")
 		}
 		socket = args[1]
-		file, err := os.OpenFile(socket, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+		file, err := os.OpenFile(socket, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 		if err != nil {
 			t.Fatal(err)
 		}
-		file.Close()
+		_ = file.Close()
 		fmt.Fprintln(os.Stderr, "proxy created a regular file")
 
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -309,10 +308,10 @@ func TestEndpointChild(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer listener.Close()
+	defer func() { _ = listener.Close() }()
 	if name == "stdbuf" {
-		fmt.Fprintln(os.Stdout, "new socket: "+socket)
-		fmt.Fprintln(os.Stdout, "pw-container diagnostic")
+		_, _ = fmt.Fprintln(os.Stdout, "new socket: "+socket)
+		_, _ = fmt.Fprintln(os.Stdout, "pw-container diagnostic")
 	}
 	time.Sleep(30 * time.Second)
 }

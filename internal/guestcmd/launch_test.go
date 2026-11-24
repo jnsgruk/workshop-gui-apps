@@ -69,7 +69,7 @@ printf '%s\n' "$XDG_RUNTIME_DIR" "$DBUS_SESSION_BUS_ADDRESS" "${DBUS_SYSTEM_BUS_
 exit 8
 `,
 	} {
-		if err := os.WriteFile(filepath.Join(root, name), []byte(script), 0700); err != nil {
+		if err := os.WriteFile(filepath.Join(root, name), []byte(script), 0o700); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -103,7 +103,7 @@ exit 8
 		if err != nil {
 			t.Fatal(err)
 		}
-		t.Cleanup(func() { listener.Close() })
+		t.Cleanup(func() { _ = listener.Close() })
 	}
 	assertLog := func(t *testing.T, path, want string) {
 		t.Helper()
