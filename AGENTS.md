@@ -28,27 +28,42 @@ then restart the helpers and relaunch your apps. Go-only host changes take
 effect after rebuilding and restarting the host helpers. Refresh the guest
 when it needs the updated shared binary.
 
+### Host subprocesses and logging
+
+Use context-aware `log/slog` calls for host diagnostics. Keep CLI help on its
+designated output stream. Give subprocess stdout and stderr separate log
+writers, and flush trailing output after the subprocess finishes. Oversized
+lines are split into records with at most 64 KiB of message data.
+
+Use `exec.CommandContext` with `WaitDelay` for host commands that capture child
+output. PipeWire reads its socket announcement from the first stdout line and
+logs subsequent lines as diagnostics. Preserve the distinction between EOF,
+read errors, and malformed announcements.
+
 ## Testing
 
 `workshop run dev -- fmt` formats the Go source with golangci-lint’s bundled gofumpt.
 `workshop run dev -- lint` runs golangci-lint with its standard linters and checks
 gofumpt formatting. Both actions use the same pinned golangci-lint version and
-download it as needed. `workshop run dev -- test` runs all Go tests, including shell-wrapper checks.
+download it as needed. `workshop run dev -- test` runs all Go tests, including
+shell-wrapper checks. Use `go fix -diff ./...` in the dev workshop to preview
+standard-library and language modernization suggestions.
 
 - Host lifecycle tests cover capability locks, symlink and file rejection,
   child cancellation, unexpected exits, and structured output. [Tests](internal/host/host_test.go)
 - PipeWire tests check that publishing the socket preserves its inode and
   rejects non-sockets. [Tests](internal/pipewire/socket_test.go)
 - Connection tests use a fake Workshop command to check mount paths, plug
-  connections, command order, and handling of a failed remount. [Tests](internal/hostcmd/connect_test.go)
+  connections, command order, failed remounts, and inherited output pipes. [Tests](internal/hostcmd/connect_test.go)
 - Host serving tests cover handler selection, locks, cancellation, and cleanup
   when a sibling fails. [Tests](internal/hostcmd/serve_test.go)
 - CLI tests cover routing, help, and exit codes. [Tests](cmd/workshop-desktop/main_test.go)
-- Logging tests cover split lines and trailing child output. [Tests](internal/logging/logging_test.go)
+- Logging tests cover split lines, trailing child output, and oversized records. [Tests](internal/logging/logging_test.go)
 - Guest launch tests observe the session bus at Snap startup and after Firefox’s
   bus switch. They also check host-mode launches and missing prerequisites. [Tests](internal/guestcmd/launch_test.go)
 - Host endpoint tests exercise D-Bus proxy startup, PipeWire socket publication,
-  early helper exits, and cleanup using temporary Unix sockets. [Tests](internal/hostcmd/endpoints_test.go)
+  early helper exits, invalid PipeWire announcements, and cleanup using
+  temporary Unix sockets. [Tests](internal/hostcmd/endpoints_test.go)
 - SDK tests cover audio setup, URL routing and errors, the build prerequisite,
   and repeated installation with a real package diversion in a disposable root. [Tests](tests/sdk_test.go)
 
