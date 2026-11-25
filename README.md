@@ -64,6 +64,49 @@ workshop run apps -- codex  # ChatGPT desktop
 workshop exec apps -- codex  # Codex CLI
 ```
 
+## Host app launchers
+
+After building and launching the workshop, install the launchers you want as
+your desktop user. Use `--all` to install every SDK with launcher metadata:
+
+```sh
+./bin/workshop-desktop host launchers install --all
+```
+
+To install individual entries, pass the SDK name:
+
+```sh
+./bin/workshop-desktop host launchers install any
+./bin/workshop-desktop host launchers install firefox
+./bin/workshop-desktop host launchers install codex-desktop
+```
+
+| SDK | App menu label | Desktop file |
+| --- | --- | --- |
+| [Any](.workshop/any/launcher.json) | Any (Workshop) | `workshop-apps-any.desktop` |
+| [Firefox](.workshop/firefox/launcher.json) | Firefox (Workshop) | `workshop-apps-firefox.desktop` |
+| [Codex desktop](.workshop/codex-desktop/launcher.json) | ChatGPT (Workshop) | `workshop-apps-codex-desktop.desktop` |
+
+The installer writes entries under
+`${XDG_DATA_HOME:-$HOME/.local/share}/applications` and copies the icons
+shipped alongside the SDK metadata. The icons come from the Any nightly
+AppImage, Firefox Snap, and ChatGPT Debian package. Each launcher runs its
+existing `apps` action in this checkout. Start the host helpers before using
+the launchers.
+
+Run the same command again to update an entry. Replace `install` with
+`remove` to uninstall it. Use `remove --all` to uninstall all entries for this checkout. Before moving the checkout, remove the entries
+and reinstall them from the new path.
+
+On the target desktop, search for each installed app, launch it, and check
+that its running window groups under the pinned launcher. Dock grouping
+depends on how the desktop shell matches Wayland windows to launcher entries.
+The installer rejects a filename already used by another installation in
+the user's application directory or by a matching entry in the host's XDG
+data directories.
+
+## Update Any
+
 To update Any, close the app and stop the host helpers. From the repository
 root on the host, run the updater (requires `curl` and `jq`), then refresh
 and reconnect:

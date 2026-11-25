@@ -1,0 +1,6 @@
+{
+  "name": "ChatGPT (Workshop)",
+  "startup_wm_class": "chatgpt",
+  "action": "codex",
+  "icon": "launcher.png"
+}

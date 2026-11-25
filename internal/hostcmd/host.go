@@ -14,7 +14,7 @@ import (
 
 // Run selects a host operation before initializing project state.
 func Run(args []string, stdout, stderr io.Writer) int {
-	const usage = "Usage: workshop-desktop host {up|connect|serve|dbus|pipewire} [--project PATH]\n       workshop-desktop host connect [--workshop NAME]\n       workshop-desktop host serve [--only=dbus,pipewire]\n       workshop-desktop host up [--workshop NAME]... [--only=dbus,pipewire]"
+	const usage = "Usage: workshop-desktop host {up|connect|serve|dbus|pipewire|launchers} [--project PATH]\n       workshop-desktop host connect [--workshop NAME]\n       workshop-desktop host serve [--only=dbus,pipewire]\n       workshop-desktop host up [--workshop NAME]... [--only=dbus,pipewire]\n       workshop-desktop host launchers {install|remove} {SDK|--all} [--project PATH]"
 	if len(args) == 0 {
 		_, _ = fmt.Fprintln(stderr, usage)
 		return 2
@@ -27,6 +27,34 @@ func Run(args []string, stdout, stderr io.Writer) int {
 	var operation func(context.Context, host.Project) error
 	capability := args[0]
 	switch capability {
+	case "launchers":
+		const launcherUsage = "Usage: workshop-desktop host launchers {install|remove} {SDK|--all} [--project PATH]"
+		if len(args) == 2 && (args[1] == "--help" || args[1] == "-h") {
+			_, _ = fmt.Fprintln(stdout, launcherUsage)
+			return 0
+		}
+		if len(args) == 3 && (args[1] == "install" || args[1] == "remove") &&
+			(args[2] == "--help" || args[2] == "-h") {
+			_, _ = fmt.Fprintln(stdout, launcherUsage)
+			return 0
+		}
+		if len(args) < 3 || (args[1] != "install" && args[1] != "remove") ||
+			(args[2] != "--all" && !launcherName.MatchString(args[2])) {
+			_, _ = fmt.Fprintln(stderr, launcherUsage)
+			return 2
+		}
+		install := args[1] == "install"
+		operation := func(ctx context.Context, p host.Project) error {
+			if args[2] == "--all" {
+				return manageAllLaunchers(ctx, p, install)
+			}
+			return manageLauncher(ctx, p, args[2], install)
+		}
+		command := "launchers " + args[1] + " " + args[2]
+		if !install {
+			return host.RunForDirectory(command, args[3:], stderr, operation)
+		}
+		return host.Run(command, args[3:], stderr, nil, operation)
 	case "connect":
 		var name string
 		register = func(flags *flag.FlagSet) {

@@ -25,16 +25,25 @@ type Project struct {
 	Root      string
 }
 
-func Load(directory string) (Project, error) {
+// loadDirectory resolves the checkout path used to identify launcher ownership.
+func loadDirectory(directory string) (Project, error) {
 	directory, err := filepath.Abs(directory)
 	if err != nil {
 		return Project{}, err
 	}
-
 	directory, err = filepath.EvalSymlinks(directory)
 	if err != nil {
 		return Project{}, err
 	}
+	return Project{Directory: directory}, nil
+}
+
+func Load(directory string) (Project, error) {
+	p, err := loadDirectory(directory)
+	if err != nil {
+		return Project{}, err
+	}
+	directory = p.Directory
 
 	data, err := os.ReadFile(filepath.Join(directory, ".workshop.lock"))
 	if err != nil {
@@ -46,11 +55,8 @@ func Load(directory string) (Project, error) {
 		return Project{}, errors.New("invalid project ID in .workshop.lock")
 	}
 
-	p := Project{
-		Directory: directory,
-		ID:        id,
-		Root:      fmt.Sprintf("/tmp/workshop-desktop-%d-%s", os.Getuid(), id),
-	}
+	p.ID = id
+	p.Root = fmt.Sprintf("/tmp/workshop-desktop-%d-%s", os.Getuid(), id)
 
 	for _, part := range []string{"", "session", "pipewire"} {
 		if err := privateDirectory(filepath.Join(p.Root, part)); err != nil {
@@ -118,6 +124,15 @@ func ClearSocket(path string) error {
 
 // Run supplies common flags, signal handling, private paths and error reporting.
 func Run(capability string, args []string, stderr io.Writer, register func(*flag.FlagSet), run func(context.Context, Project) error) int {
+	return runCommand(capability, args, stderr, register, Load, run)
+}
+
+// RunForDirectory runs a command that only needs the canonical checkout path.
+func RunForDirectory(capability string, args []string, stderr io.Writer, run func(context.Context, Project) error) int {
+	return runCommand(capability, args, stderr, nil, loadDirectory, run)
+}
+
+func runCommand(capability string, args []string, stderr io.Writer, register func(*flag.FlagSet), load func(string) (Project, error), run func(context.Context, Project) error) int {
 	logger := logging.New(stderr).With("command", capability)
 	flags := flag.NewFlagSet("workshop-desktop host "+capability, flag.ContinueOnError)
 	flags.SetOutput(stderr)
@@ -146,7 +161,7 @@ func Run(capability string, args []string, stderr io.Writer, register func(*flag
 	ctx = logging.WithLogger(ctx, logger)
 
 	err := func() error {
-		p, err := Load(*directory)
+		p, err := load(*directory)
 		if err != nil {
 			return err
 		}

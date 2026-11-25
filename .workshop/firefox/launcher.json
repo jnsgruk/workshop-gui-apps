@@ -1,0 +1,6 @@
+{
+  "name": "Firefox (Workshop)",
+  "startup_wm_class": "firefox_firefox",
+  "action": "firefox",
+  "icon": "launcher.png"
+}

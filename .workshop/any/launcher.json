@@ -1,0 +1,6 @@
+{
+  "name": "Any (Workshop)",
+  "startup_wm_class": "any-desktop",
+  "action": "any",
+  "icon": "launcher.png"
+}
