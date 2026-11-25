@@ -11,14 +11,18 @@ import (
 )
 
 type workshopRepair struct {
-	start        bool
-	mounts       []bridgeMount
-	connectMount []bridgeMount
-	interfaces   []bridgeInterface
+	stopped    bool
+	mounts     []mountRepair
+	interfaces []bridgeInterface
+}
+
+type mountRepair struct {
+	mount           bridgeMount
+	needsConnection bool
 }
 
 func (r workshopRepair) needed() bool {
-	return r.start || len(r.mounts) != 0 || len(r.interfaces) != 0
+	return r.stopped || len(r.mounts) != 0 || len(r.interfaces) != 0
 }
 
 func up(ctx context.Context, p host.Project, names []string, selected []handler) error {
@@ -66,22 +70,10 @@ func up(ctx context.Context, p host.Project, names []string, selected []handler)
 }
 
 func (r workshopRepair) apply(ctx context.Context, p host.Project, name string) error {
-	if len(r.mounts) != 0 {
-		if !r.start {
-			if err := workshopCommand(ctx, p, "stop", name); err != nil {
-				return err
-			}
-		}
-		for _, mount := range r.connectMount {
-			if err := workshopCommand(ctx, p, "connect", name+"/host-integration:"+mount.plug, name+"/system:mount"); err != nil {
-				return err
-			}
-		}
-		if err := remount(ctx, p, name, r.mounts); err != nil {
-			return err
-		}
+	if err := r.applyMounts(ctx, p, name); err != nil {
+		return err
 	}
-	if r.start || len(r.mounts) != 0 {
+	if r.stopped || len(r.mounts) != 0 {
 		if err := workshopCommand(ctx, p, "start", name); err != nil {
 			return err
 		}
@@ -92,6 +84,30 @@ func (r workshopRepair) apply(ctx context.Context, p host.Project, name string) 
 		}
 	}
 	return nil
+}
+
+func (r workshopRepair) applyMounts(ctx context.Context, p host.Project, name string) error {
+	if len(r.mounts) == 0 {
+		return nil
+	}
+	if !r.stopped {
+		if err := workshopCommand(ctx, p, "stop", name); err != nil {
+			return err
+		}
+	}
+
+	mounts := make([]bridgeMount, 0, len(r.mounts))
+	for _, repair := range r.mounts {
+		mounts = append(mounts, repair.mount)
+		if !repair.needsConnection {
+			continue
+		}
+		plug := name + "/host-integration:" + repair.mount.plug
+		if err := workshopCommand(ctx, p, "connect", plug, name+"/system:mount"); err != nil {
+			return err
+		}
+	}
+	return remount(ctx, p, name, mounts)
 }
 
 func (c workshopClient) inspect(ctx context.Context, p host.Project, name string) (workshopRepair, error) {
@@ -113,7 +129,7 @@ func (c workshopClient) inspect(ctx context.Context, p host.Project, name string
 		return workshopRepair{}, err
 	}
 
-	repair := workshopRepair{start: info.Status == "Stopped"}
+	repair := workshopRepair{stopped: info.Status == "Stopped"}
 	for _, mount := range bridgeMounts {
 		source, err := info.mountSource(mount)
 		if err != nil {
@@ -127,12 +143,10 @@ func (c workshopClient) inspect(ctx context.Context, p host.Project, name string
 		if (source == "") != (connected == nil) {
 			return workshopRepair{}, fmt.Errorf("inconsistent mount and connection state for %s", mount.plug)
 		}
-		if source != filepath.Join(p.Root, mount.directory) {
-			repair.mounts = append(repair.mounts, mount)
-			if connected == nil {
-				repair.connectMount = append(repair.connectMount, mount)
-			}
+		if source == filepath.Join(p.Root, mount.directory) {
+			continue
 		}
+		repair.mounts = append(repair.mounts, mountRepair{mount: mount, needsConnection: connected == nil})
 	}
 	for _, iface := range bridgeInterfaces {
 		plug := workshopPlug{p.ID, name, iface.sdk, iface.capability}
@@ -142,7 +156,9 @@ func (c workshopClient) inspect(ctx context.Context, p host.Project, name string
 		}
 		if slot == nil {
 			repair.interfaces = append(repair.interfaces, iface)
-		} else if *slot != (workshopSlot{p.ID, name, "system", iface.capability}) {
+			continue
+		}
+		if *slot != (workshopSlot{p.ID, name, "system", iface.capability}) {
 			return workshopRepair{}, fmt.Errorf("%s:%s is connected to an unexpected slot", iface.sdk, iface.capability)
 		}
 	}
