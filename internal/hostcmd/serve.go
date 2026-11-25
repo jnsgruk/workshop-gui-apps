@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 
 	"golang.org/x/sync/errgroup"
@@ -28,20 +29,15 @@ func selectHandlers(value string) ([]handler, error) {
 	seen := make(map[string]bool)
 	for name := range strings.SplitSeq(value, ",") {
 		name = strings.TrimSpace(name)
-		var found bool
-		for _, h := range handlers {
-			if h.name == name {
-				if !seen[name] {
-					selected = append(selected, h)
-					seen[name] = true
-				}
-				found = true
-				break
-			}
-		}
-		if !found {
+		index := slices.IndexFunc(handlers, func(h handler) bool { return h.name == name })
+		if index < 0 {
 			return nil, fmt.Errorf("unknown handler %q; choose from dbus, pipewire", name)
 		}
+		if seen[name] {
+			continue
+		}
+		selected = append(selected, handlers[index])
+		seen[name] = true
 	}
 	return selected, nil
 }
