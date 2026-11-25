@@ -41,6 +41,14 @@ func TestRemoveLaunchersWithoutMetadata(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	foreign := filepath.Join(paths.applications, launcherPrefix+"codex-desktop.desktop")
+	if err := manageLauncher(t.Context(), project, "codex-desktop", false); err == nil ||
+		!strings.Contains(err.Error(), "launcher belongs to another installation: "+foreign) {
+		t.Fatalf("expected an error naming the other checkout's launcher, got %v", err)
+	}
+	if err := manageLauncher(t.Context(), project, "missing", false); err != nil {
+		t.Fatalf("removing a missing launcher should succeed: %v", err)
+	}
 	if err := manageLauncher(t.Context(), project, "any", false); err != nil {
 		t.Fatal(err)
 	}

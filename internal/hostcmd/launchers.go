@@ -65,19 +65,9 @@ func manageLauncher(ctx context.Context, p host.Project, sdk string, install boo
 		return removeLaunchers(ctx, p, sdk)
 	}
 	sdkDir := filepath.Join(p.Directory, ".workshop", sdk)
-	metadataPath := filepath.Join(sdkDir, "launcher.json")
-	data, err := os.ReadFile(metadataPath)
+	metadata, err := readLauncherMetadata(sdkDir)
 	if err != nil {
-		return fmt.Errorf("read launcher metadata: %w", err)
-	}
-	var metadata launcherMetadata
-	if err := json.Unmarshal(data, &metadata); err != nil {
-		return fmt.Errorf("parse %s: %w", metadataPath, err)
-	}
-	if !launcherName.MatchString(metadata.Action) ||
-		strings.TrimSpace(metadata.Name) == "" || !filepath.IsLocal(metadata.Icon) ||
-		filepath.Base(metadata.Icon) != metadata.Icon || filepath.Ext(metadata.Icon) != ".png" {
-		return fmt.Errorf("invalid launcher metadata: %s", metadataPath)
+		return err
 	}
 
 	paths, err := launcherPathsFor(p)
@@ -91,35 +81,17 @@ func manageLauncher(ctx context.Context, p host.Project, sdk string, install boo
 	defer func() { _ = directory.Close() }()
 
 	id := launcherPrefix + sdk
-	desktopPath := filepath.Join(paths.applications, id+".desktop")
-	owned, err := paths.owns(desktopPath)
+	desktopName := id + ".desktop"
+	desktopPath := filepath.Join(paths.applications, desktopName)
+	status, err := paths.status(desktopPath)
 	if err != nil {
 		return err
 	}
-	if !owned {
-		if _, err := os.Lstat(desktopPath); err == nil {
-			return fmt.Errorf("launcher belongs to another installation: %s", desktopPath)
-		} else if !errors.Is(err, os.ErrNotExist) {
-			return err
-		}
+	if status == launcherForeign {
+		return foreignLauncherError(desktopPath)
 	}
-
-	dataDirs := os.Getenv("XDG_DATA_DIRS")
-	if dataDirs == "" {
-		dataDirs = "/usr/local/share:/usr/share"
-	}
-	for _, dataDir := range append([]string{paths.dataHome}, filepath.SplitList(dataDirs)...) {
-		if !filepath.IsAbs(dataDir) {
-			continue
-		}
-		applications := filepath.Join(dataDir, "applications")
-		allowed := ""
-		if applications == paths.applications {
-			allowed = desktopPath
-		}
-		if err := checkDesktopID(applications, id+".desktop", allowed); err != nil {
-			return err
-		}
+	if err := paths.checkDesktopIDCollisions(desktopName, desktopPath); err != nil {
+		return err
 	}
 
 	iconPath := filepath.Join(paths.icons, id+".png")
@@ -156,6 +128,24 @@ func manageLauncher(ctx context.Context, p host.Project, sdk string, install boo
 	}
 	logging.Result(ctx, fmt.Sprintf("Installed desktop launcher at %q.", desktopPath))
 	return nil
+}
+
+func readLauncherMetadata(sdkDir string) (launcherMetadata, error) {
+	metadataPath := filepath.Join(sdkDir, "launcher.json")
+	data, err := os.ReadFile(metadataPath)
+	if err != nil {
+		return launcherMetadata{}, fmt.Errorf("read launcher metadata: %w", err)
+	}
+	var metadata launcherMetadata
+	if err := json.Unmarshal(data, &metadata); err != nil {
+		return launcherMetadata{}, fmt.Errorf("parse %s: %w", metadataPath, err)
+	}
+	if !launcherName.MatchString(metadata.Action) ||
+		strings.TrimSpace(metadata.Name) == "" || !filepath.IsLocal(metadata.Icon) ||
+		filepath.Base(metadata.Icon) != metadata.Icon || filepath.Ext(metadata.Icon) != ".png" {
+		return launcherMetadata{}, fmt.Errorf("invalid launcher metadata: %s", metadataPath)
+	}
+	return metadata, nil
 }
 
 type launcherPaths struct {
@@ -201,22 +191,37 @@ func (p launcherPaths) lock(create bool) (*os.File, error) {
 	return directory, nil
 }
 
-func (p launcherPaths) owns(path string) (bool, error) {
+type launcherStatus int
+
+const (
+	launcherMissing launcherStatus = iota
+	launcherOwned
+	launcherForeign
+)
+
+func (p launcherPaths) status(path string) (launcherStatus, error) {
 	info, err := os.Lstat(path)
 	if errors.Is(err, os.ErrNotExist) {
-		return false, nil
+		return launcherMissing, nil
 	}
 	if err != nil {
-		return false, err
+		return launcherMissing, err
 	}
 	if !info.Mode().IsRegular() {
-		return false, nil
+		return launcherForeign, nil
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return false, err
+		return launcherMissing, err
 	}
-	return strings.HasPrefix(string(data), "[Desktop Entry]\n"+p.owner+"\n"), nil
+	if strings.HasPrefix(string(data), "[Desktop Entry]\n"+p.owner+"\n") {
+		return launcherOwned, nil
+	}
+	return launcherForeign, nil
+}
+
+func foreignLauncherError(path string) error {
+	return fmt.Errorf("launcher belongs to another installation: %s", path)
 }
 
 func removeLaunchers(ctx context.Context, p host.Project, sdk string) error {
@@ -250,26 +255,26 @@ func removeLaunchers(ctx context.Context, p host.Project, sdk string) error {
 		if !desktop || !prefixed || !launcherName.MatchString(suffix) {
 			continue
 		}
-		path := filepath.Join(paths.applications, name)
-		owned, err := paths.owns(path)
-		if err == nil && owned {
-			err = removeLauncher(ctx, path, filepath.Join(paths.icons, id+".png"))
-		}
-		if err == nil && !owned && sdk != "" {
-			if _, statErr := os.Lstat(path); statErr == nil {
-				err = fmt.Errorf("launcher belongs to another installation: %s", path)
-			} else if !errors.Is(statErr, os.ErrNotExist) {
-				err = statErr
-			}
-		}
-		if err != nil {
+		if err := paths.removeLauncher(ctx, id, sdk != ""); err != nil {
 			failures = append(failures, err)
 		}
 	}
 	return errors.Join(failures...)
 }
 
-func removeLauncher(ctx context.Context, desktop, icon string) error {
+func (p launcherPaths) removeLauncher(ctx context.Context, id string, explicit bool) error {
+	desktop := filepath.Join(p.applications, id+".desktop")
+	status, err := p.status(desktop)
+	if err != nil {
+		return err
+	}
+	if status == launcherForeign && explicit {
+		return foreignLauncherError(desktop)
+	}
+	if status != launcherOwned {
+		return nil
+	}
+	icon := filepath.Join(p.icons, id+".png")
 	if err := os.Remove(icon); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
@@ -277,6 +282,27 @@ func removeLauncher(ctx context.Context, desktop, icon string) error {
 		return err
 	}
 	logging.Result(ctx, fmt.Sprintf("Removed desktop launcher at %q.", desktop))
+	return nil
+}
+
+func (p launcherPaths) checkDesktopIDCollisions(name, desktopPath string) error {
+	dataDirs := os.Getenv("XDG_DATA_DIRS")
+	if dataDirs == "" {
+		dataDirs = "/usr/local/share:/usr/share"
+	}
+	for _, dataDir := range append([]string{p.dataHome}, filepath.SplitList(dataDirs)...) {
+		if !filepath.IsAbs(dataDir) {
+			continue
+		}
+		applications := filepath.Join(dataDir, "applications")
+		allowed := ""
+		if applications == p.applications {
+			allowed = desktopPath
+		}
+		if err := checkDesktopID(applications, name, allowed); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -295,11 +321,12 @@ func checkDesktopID(directory, id, allowed string) error {
 		if entry.Name() == id && !entry.IsDir() && path != allowed {
 			return fmt.Errorf("launcher would shadow an existing desktop entry: %s", path)
 		}
-		if suffix, ok := strings.CutPrefix(id, entry.Name()+"-"); ok &&
-			(entry.IsDir() || entry.Type()&os.ModeSymlink != 0) {
-			if err := checkDesktopID(path, suffix, allowed); err != nil {
-				return err
-			}
+		suffix, prefixed := strings.CutPrefix(id, entry.Name()+"-")
+		if !prefixed || (!entry.IsDir() && entry.Type()&os.ModeSymlink == 0) {
+			continue
+		}
+		if err := checkDesktopID(path, suffix, allowed); err != nil {
+			return err
 		}
 	}
 	return nil
