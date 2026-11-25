@@ -29,8 +29,10 @@ empty collections are equivalent.
 
 Use context-aware `log/slog` calls for host diagnostics. Keep CLI help on its
 designated output stream. Give subprocess stdout and stderr separate log
-writers, and flush trailing output after the subprocess finishes. Oversized
-lines are split into records with at most 64 KiB of message data.
+writers, and flush trailing output after the subprocess finishes. Use
+`logging.NewSubprocessOutput` for paired streams with stderr captured for
+error messages. Oversized lines are split into records with at most 64 KiB
+of message data.
 
 Use `exec.CommandContext` with `WaitDelay` for host commands that capture child
 output. PipeWire reads its socket announcement from the first stdout line and

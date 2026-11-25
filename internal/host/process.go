@@ -3,7 +3,6 @@ package host
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"os"
 	"os/exec"
 	"syscall"
@@ -25,10 +24,8 @@ func Start(ctx context.Context, configure func(*exec.Cmd), name string, args ...
 
 	cmd := exec.CommandContext(ctx, name, args...)
 	logger := logging.Logger(ctx).With("process", name)
-	stdout := &logging.Writer{Context: ctx, Logger: logger.With("stream", "stdout"), Level: slog.LevelInfo}
-	detail := &logging.ErrorDetail{}
-	stderr := &logging.Writer{Context: ctx, Logger: logger.With("stream", "stderr"), Level: slog.LevelInfo, Detail: detail}
-	cmd.Stdout, cmd.Stderr = stdout, stderr
+	output := logging.NewSubprocessOutput(ctx, logger)
+	cmd.Stdout, cmd.Stderr = &output.Stdout, &output.Stderr
 	cmd.Cancel = func() error { return cmd.Process.Signal(syscall.SIGTERM) }
 	cmd.WaitDelay = 3 * time.Second
 
@@ -41,12 +38,11 @@ func Start(ctx context.Context, configure func(*exec.Cmd), name string, args ...
 		return nil, err
 	}
 
-	p := &Process{command: cmd, done: make(chan struct{}), cancel: cancel, detail: detail}
+	p := &Process{command: cmd, done: make(chan struct{}), cancel: cancel, detail: &output.Detail}
 
 	go func() {
 		p.err = cmd.Wait()
-		stdout.Flush()
-		stderr.Flush()
+		output.Flush()
 		close(p.done)
 	}()
 	return p, nil

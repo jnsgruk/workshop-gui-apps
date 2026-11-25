@@ -5,7 +5,6 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"log/slog"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -71,18 +70,15 @@ func workshopCommand(ctx context.Context, p host.Project, args ...string) error 
 	cmd.WaitDelay = workshopWaitDelay
 	cmd.Dir = p.Directory
 	logger := logging.Logger(ctx).With("process", "workshop", "operation", args[0])
-	stdout := &logging.Writer{Context: ctx, Logger: logger.With("stream", "stdout"), Level: slog.LevelInfo}
-	detail := &logging.ErrorDetail{}
-	stderr := &logging.Writer{Context: ctx, Logger: logger.With("stream", "stderr"), Level: slog.LevelInfo, Detail: detail}
-	defer stdout.Flush()
-	defer stderr.Flush()
-	cmd.Stdout, cmd.Stderr = stdout, stderr
+	output := logging.NewSubprocessOutput(ctx, logger)
+	defer output.Flush()
+	cmd.Stdout, cmd.Stderr = &output.Stdout, &output.Stderr
 	err := cmd.Run()
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
 	if err != nil {
-		return detail.Wrap(fmt.Errorf("workshop %s: %w", strings.Join(args, " "), err))
+		return output.Detail.Wrap(fmt.Errorf("workshop %s: %w", strings.Join(args, " "), err))
 	}
 	return nil
 }
@@ -118,18 +114,15 @@ func connectInterface(ctx context.Context, directory, name, sdk, capability stri
 	}
 
 	logger := logging.Logger(ctx).With("process", "workshop", "operation", "connect", "capability", capability)
-	detail := &logging.ErrorDetail{}
-	stdoutLog := &logging.Writer{Context: ctx, Logger: logger.With("stream", "stdout"), Level: slog.LevelInfo}
-	stderrLog := &logging.Writer{Context: ctx, Logger: logger.With("stream", "stderr"), Level: slog.LevelInfo, Detail: detail}
+	output := logging.NewSubprocessOutput(ctx, logger)
 	if errText == "" {
-		stdoutLog.Detail = detail
+		output.Stdout.Detail = &output.Detail
 	}
-	_, _ = stdout.WriteTo(stdoutLog)
-	_, _ = stderr.WriteTo(stderrLog)
-	stdoutLog.Flush()
-	stderrLog.Flush()
+	_, _ = stdout.WriteTo(&output.Stdout)
+	_, _ = stderr.WriteTo(&output.Stderr)
+	output.Flush()
 	if err != nil {
-		return detail.Wrap(fmt.Errorf("workshop connect %s: %w", plug, err))
+		return output.Detail.Wrap(fmt.Errorf("workshop connect %s: %w", plug, err))
 	}
 	return nil
 }

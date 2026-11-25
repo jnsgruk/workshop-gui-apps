@@ -124,6 +124,28 @@ func (d *ErrorDetail) Wrap(err error) error {
 	return fmt.Errorf("%w: %q", err, detail)
 }
 
+// SubprocessOutput logs the two child streams and retains stderr for errors.
+type SubprocessOutput struct {
+	Stdout Writer
+	Stderr Writer
+	Detail ErrorDetail
+}
+
+func NewSubprocessOutput(ctx context.Context, logger *slog.Logger) *SubprocessOutput {
+	output := &SubprocessOutput{
+		Stdout: Writer{Context: ctx, Logger: logger.With("stream", "stdout"), Level: slog.LevelInfo},
+		Stderr: Writer{Context: ctx, Logger: logger.With("stream", "stderr"), Level: slog.LevelInfo},
+	}
+	output.Stderr.Detail = &output.Detail
+	return output
+}
+
+// Flush logs any trailing output after the child stops writing.
+func (o *SubprocessOutput) Flush() {
+	o.Stdout.Flush()
+	o.Stderr.Flush()
+}
+
 const maxRecordBytes = 64 * 1024
 
 // Writer turns child output into log records, splitting oversized lines.
