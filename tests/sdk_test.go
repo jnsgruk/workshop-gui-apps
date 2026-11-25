@@ -239,7 +239,11 @@ func TestSetupInstallsStagedLauncherAndGuestWrappers(t *testing.T) {
 		"apt-get":   "#!/bin/sh\nexit 0\n",
 		"systemctl": "#!/bin/sh\nexit 0\n",
 		"install": `#!/bin/sh
-[ "$#" = 4 ] && [ "$1" = -m ] || exit 87
+[ "$#" = 4 ] || exit 87
+if [ "$1" = -d ] && [ "$2" = -m ] && [ "$4" = /mnt/workshop-host ]; then
+  exec "$SETUP_TEST_INSTALL" "$1" "$2" "$3" "$SETUP_TEST_ROOT$4"
+fi
+[ "$1" = -m ] || exit 87
 case "$4" in
   /usr/*|/etc/*) exec "$SETUP_TEST_INSTALL" "$1" "$2" "$3" "$SETUP_TEST_ROOT$4";;
   *) exit 87;;
@@ -268,6 +272,10 @@ exec "$SETUP_TEST_DIVERT" --root "$SETUP_TEST_ROOT" "$@"
 		cmd := exec.Command("/bin/bash", filepath.Join(sdk, "hooks/setup-base"))
 		if output, err := cmd.CombinedOutput(); err != nil {
 			t.Fatalf("run setup: %v, %s", err, output)
+		}
+		info, err := os.Stat(filepath.Join(guest, "mnt/workshop-host"))
+		if err != nil || !info.IsDir() || info.Mode().Perm() != 0o711 {
+			t.Fatalf("host mount parent must be traversable: %v, %v", info, err)
 		}
 		for _, tc := range []struct {
 			source, target string

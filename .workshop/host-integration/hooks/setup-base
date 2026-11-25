@@ -7,7 +7,9 @@ if [ ! -x "$SDK/bin/workshop-desktop" ]; then
   exit 1
 fi
 
-# D-Bus: the SDK mount supplies the filtered session bus. Apps opt in.
+# Give the guest user search access to both mounts. Workshop can otherwise
+# create this shared parent as root with mode 0700 when connecting the plugs.
+install -d -m 0711 /mnt/workshop-host
 
 # Audio: install the guest PulseAudio compatibility service and wrapper.
 export DEBIAN_FRONTEND=noninteractive
