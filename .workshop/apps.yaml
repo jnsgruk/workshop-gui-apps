@@ -16,4 +16,4 @@ actions:
     exec /usr/local/bin/workshop-appimage "$@"
 
   codex: |
-    exec /usr/bin/chatgpt "$@"
+    exec /usr/bin/chatgpt --ozone-platform=wayland "$@"
