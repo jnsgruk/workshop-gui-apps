@@ -39,6 +39,22 @@ output. PipeWire reads its socket announcement from the first stdout line and
 logs subsequent lines as diagnostics. Preserve the distinction between EOF,
 read errors, and malformed announcements.
 
+## §4 - Control flow
+
+- Use early returns for errors and guard clauses for cases that can exit or
+  skip an iteration. Keep the main path at the lowest practical indentation.
+- Extract a named operation when it lets the caller read the workflow in order.
+  Keep lock scope, cleanup order, and side effects visible where they are
+  coordinated.
+- Represent distinct outcomes explicitly when callers handle them differently.
+  For example, a launcher can be missing, owned by this project, or owned by
+  another installation. Return I/O errors separately. Keep related decisions
+  together, such as a mount repair and whether it needs a new connection.
+- During review, look for nested loops and conditionals, repeated checks, and
+  flags whose meaning depends on earlier branches. Use nesting depth and
+  cyclomatic complexity as review signals. Favor the version that makes the
+  behavior easiest to trace, including failure and cancellation paths.
+
 
 # Concepts
 
