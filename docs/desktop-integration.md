@@ -118,6 +118,12 @@ and GID 1000 and allow clients to connect to the sockets. Service policy
 controls the operations available over those connections. Mounting under
 `/mnt` keeps the endpoints outside the guest's boot-managed runtime directory.
 
+[`host up`](../internal/hostcmd/up.go) queries Workshop’s local daemon for
+mounts and interface connections for every selected workshop before making
+changes. It connects missing plugs, repairs stale mount sources, and verifies
+repairs before starting the handlers. It holds both capability locks for the
+lifetime of the command, including when `--only` selects one handler.
+
 Each handler reports readiness and owns its own lock and cleanup.
 [Grouped serving](../internal/hostcmd/serve.go) runs all handlers by default.
 `--only` accepts a comma-separated list of handler names and runs each named
@@ -206,6 +212,11 @@ relaunch Any.
 Run these checks in the connected `apps` workshop with the host handlers
 running. The [automated tests](../AGENTS.md#testing) cover
 the helpers and wrappers.
+
+For the combined startup, run `host up` after launching `apps` and wait for
+both helpers to report ready. Stop `host up` with Ctrl-C, leave a guest app
+running, then run `host up` again. Verify that the guest app retains its
+process ID and the helpers report ready again.
 
 | Capability | What to verify in a live session |
 | --- | --- |

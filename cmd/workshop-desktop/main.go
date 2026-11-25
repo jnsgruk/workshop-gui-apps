@@ -14,7 +14,7 @@ func main() { os.Exit(run(os.Args[1:], os.Stdout, os.Stderr)) }
 
 func run(args []string, stdout, stderr io.Writer) int {
 	const guestUsage = guestcmd.LaunchUsage
-	const usage = "Usage: workshop-desktop host {connect|serve|dbus|pipewire} [OPTIONS]\n       workshop-desktop guest launch [OPTIONS]"
+	const usage = "Usage: workshop-desktop host {up|connect|serve|dbus|pipewire} [OPTIONS]\n       workshop-desktop guest launch [OPTIONS]"
 	if len(args) == 0 {
 		_, _ = fmt.Fprintln(stderr, usage)
 		return 2

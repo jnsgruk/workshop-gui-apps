@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 
 	"workshop-desktop/internal/host"
@@ -43,17 +44,35 @@ func selectHandlers(value string) ([]handler, error) {
 	return selected, nil
 }
 
-// Acquire every selected lock before starting any handler. Keep the locks until
-// all handlers finish cleanup, including after a sibling fails.
-func runHandlers(ctx context.Context, p host.Project, selected []handler) error {
+func lockHandlers(p host.Project, selected []handler) (func(), error) {
+	var locks []*os.File
+	unlock := func() {
+		for _, lock := range locks {
+			_ = lock.Close()
+		}
+	}
 	for _, h := range selected {
 		lock, err := p.Lock(h.name)
 		if err != nil {
-			return err
+			unlock()
+			return nil, err
 		}
-		defer func() { _ = lock.Close() }()
+		locks = append(locks, lock)
 	}
+	return unlock, nil
+}
 
+// Keep the locks until all handlers finish cleanup, including after a sibling fails.
+func runHandlers(ctx context.Context, p host.Project, selected []handler) error {
+	unlock, err := lockHandlers(p, selected)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	return serveHandlers(ctx, p, selected)
+}
+
+func serveHandlers(ctx context.Context, p host.Project, selected []handler) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	results := make(chan error, len(selected))

@@ -29,26 +29,23 @@ Host PipeWire must support SecurityContext and have a running session manager su
 
 ```sh
 workshop launch apps
-./bin/workshop-desktop host connect
+./bin/workshop-desktop host up
 ```
 
-Close guest GUI apps and stop running helpers before reconnecting.
+Run `host up` in a host graphical-session terminal, without sudo. It checks the
+desktop integration for `apps`, repairs missing connections, and serves the
+host endpoints in the foreground. If a mount needs repair, it may stop and
+restart the workshop. Close guest GUI apps before running it after a mount
+change. An already connected, running workshop keeps running.
+
 Host commands default to the current directory, which must contain
-`.workshop.lock` from a Workshop launch. `host COMMAND --project PATH` selects
-another project directory; `host connect --workshop NAME` selects a workshop
-with the same SDK and plug names as the apps definition. The default is `apps`.
+`.workshop.lock` from a Workshop launch. Use `--project PATH` to select another
+project or repeat `--workshop NAME` to prepare multiple launched workshops
+with the same SDKs and plugs as `apps`.
 
-Run all handlers in a host graphical-session terminal, without sudo:
-
-```sh
-./bin/workshop-desktop host serve
-```
-
-To run a subset, use a comma-separated filter:
-
-```sh
-./bin/workshop-desktop host serve --only=pipewire,dbus
-```
+Both `host up` and `host serve` accept a handler filter such as
+`--only=pipewire`. Use `host connect` for explicit reconnection and
+`host serve` to run the helpers on their own.
 
 The available handlers are `dbus` and `pipewire`. You can also run
 them separately:

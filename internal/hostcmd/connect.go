@@ -16,67 +16,80 @@ import (
 
 const workshopWaitDelay = 3 * time.Second
 
+type bridgeMount struct{ plug, directory string }
+
+var bridgeMounts = []bridgeMount{
+	{"host-session", "session"},
+	{"host-pipewire", "pipewire"},
+}
+
+type bridgeInterface struct{ sdk, capability string }
+
+var bridgeInterfaces = []bridgeInterface{
+	{"host-integration", "desktop"},
+	{"firefox", "camera"},
+}
+
+func validWorkshopName(name string) bool {
+	return name != "" && !strings.HasPrefix(name, "-") && !strings.ContainsAny(name, "/ \t\n")
+}
+
 func connect(ctx context.Context, p host.Project, name string) error {
-	if name == "" || strings.HasPrefix(name, "-") || strings.ContainsAny(name, "/ \t\n") {
+	if !validWorkshopName(name) {
 		return fmt.Errorf("invalid workshop name")
 	}
 
-	for _, capability := range []string{"dbus", "pipewire"} {
-		lock, err := p.Lock(capability)
-		if err != nil {
-			return err
-		}
-
-		defer func() { _ = lock.Close() }()
-	}
-
-	if _, err := exec.LookPath("workshop"); err != nil {
+	unlock, err := lockHandlers(p, handlers)
+	if err != nil {
 		return err
 	}
+	defer unlock()
 
-	run := func(args ...string) error {
-		cmd := exec.CommandContext(ctx, "workshop", args...)
-		cmd.WaitDelay = workshopWaitDelay
-		cmd.Dir = p.Directory
-		logger := logging.Logger(ctx).With("process", "workshop", "operation", args[0])
-		stdout := &logging.Writer{Context: ctx, Logger: logger.With("stream", "stdout"), Level: slog.LevelInfo}
-		stderr := &logging.Writer{Context: ctx, Logger: logger.With("stream", "stderr"), Level: slog.LevelWarn}
-		defer stdout.Flush()
-		defer stderr.Flush()
-		cmd.Stdout, cmd.Stderr = stdout, stderr
-		return cmd.Run()
-	}
-
-	if err := run("stop", name); err != nil {
+	if err := workshopCommand(ctx, p, "stop", name); err != nil {
 		return err
 	}
-
-	mounts := []struct{ plug, directory string }{
-		{"host-session", "session"},
-		{"host-pipewire", "pipewire"},
-	}
-
-	for _, mount := range mounts {
-		if err := run("remount", name+"/host-integration:"+mount.plug, filepath.Join(p.Root, mount.directory)); err != nil {
-			return fmt.Errorf("remount failed; workshop remains stopped: %w", err)
-		}
-	}
-
-	if err := run("start", name); err != nil {
+	if err := remount(ctx, p, name, bridgeMounts); err != nil {
 		return err
 	}
-
-	interfaces := []struct{ sdk, capability string }{
-		{"host-integration", "desktop"},
-		{"firefox", "camera"},
+	if err := workshopCommand(ctx, p, "start", name); err != nil {
+		return err
 	}
-	for _, iface := range interfaces {
+	for _, iface := range bridgeInterfaces {
 		if err := connectInterface(ctx, p.Directory, name, iface.sdk, iface.capability); err != nil {
 			return err
 		}
 	}
 
 	logging.Logger(ctx).InfoContext(ctx, "Connected. Start workshop-desktop host serve.")
+	return nil
+}
+
+func workshopCommand(ctx context.Context, p host.Project, args ...string) error {
+	cmd := exec.CommandContext(ctx, "workshop", args...)
+	cmd.WaitDelay = workshopWaitDelay
+	cmd.Dir = p.Directory
+	logger := logging.Logger(ctx).With("process", "workshop", "operation", args[0])
+	stdout := &logging.Writer{Context: ctx, Logger: logger.With("stream", "stdout"), Level: slog.LevelInfo}
+	stderr := &logging.Writer{Context: ctx, Logger: logger.With("stream", "stderr"), Level: slog.LevelWarn}
+	defer stdout.Flush()
+	defer stderr.Flush()
+	cmd.Stdout, cmd.Stderr = stdout, stderr
+	err := cmd.Run()
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	if err != nil {
+		return fmt.Errorf("workshop %s: %w", strings.Join(args, " "), err)
+	}
+	return nil
+}
+
+func remount(ctx context.Context, p host.Project, name string, mounts []bridgeMount) error {
+	for _, mount := range mounts {
+		if err := workshopCommand(ctx, p, "remount", name+"/host-integration:"+mount.plug, filepath.Join(p.Root, mount.directory)); err != nil {
+			return fmt.Errorf("remount failed; workshop remains stopped: %w", err)
+		}
+	}
 	return nil
 }
 
