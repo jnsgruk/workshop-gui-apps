@@ -3,12 +3,12 @@ set -euo pipefail
 
 image=/opt/any/Any.AppImage
 if [ ! -x "$image" ]; then
-  echo 'The Any nightly AppImage is missing. Run workshop refresh apps to install it.' >&2
+  echo 'error: the Any nightly AppImage is missing. Run workshop refresh apps to install it.' >&2
   exit 1
 fi
 
 cd /project
 export ELECTRON_OZONE_PLATFORM_HINT=wayland
 # Explicitly use AppImage extraction, so the guest does not require /dev/fuse.
-exec /usr/local/bin/workshop-desktop guest launch --session-bus=host "$image" \
+exec /usr/local/bin/workshop-desktop guest launch --session-bus host -- "$image" \
   --appimage-extract-and-run --ozone-platform=wayland "$@"

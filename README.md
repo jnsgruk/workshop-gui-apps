@@ -29,10 +29,10 @@ Host PipeWire must support SecurityContext and have a running session manager su
 
 ```sh
 workshop launch apps
-./bin/workshop-desktop host up
+./bin/workshop-desktop host start
 ```
 
-Run `host up` in a host graphical-session terminal, without sudo. It checks the
+Run `host start` in a host graphical-session terminal, without sudo. It checks the
 desktop integration for `apps`, repairs missing connections, and serves the
 host endpoints in the foreground. If a mount needs repair, it may stop and
 restart the workshop. Close guest GUI apps before running it after a mount
@@ -43,16 +43,16 @@ Host commands default to the current directory, which must contain
 project or repeat `--workshop NAME` to prepare multiple launched workshops
 with the same SDKs and plugs as `apps`.
 
-Both `host up` and `host serve` accept a handler filter such as
-`--only=pipewire`. Use `host connect` for explicit reconnection and
+Both `host start` and `host serve` accept a handler filter such as
+`--handlers pipewire`. Use `host connect` for explicit reconnection and
 `host serve` to run the helpers on their own.
 
 The available handlers are `dbus` and `pipewire`. You can also run
 them separately:
 
 ```sh
-./bin/workshop-desktop host dbus
-./bin/workshop-desktop host pipewire
+./bin/workshop-desktop host serve --handlers dbus
+./bin/workshop-desktop host serve --handlers pipewire
 ```
 
 Wait for the handlers to report ready, then launch apps from another terminal:
@@ -64,21 +64,26 @@ workshop run apps -- codex  # ChatGPT desktop
 workshop exec apps -- codex  # Codex CLI
 ```
 
+Use `workshop-desktop help host start` for command help and
+`workshop-desktop version` for the build version. Host operations report
+concise progress by default. Use `--quiet` to show only errors from the CLI
+or `--verbose` for structured diagnostics.
+
 ## Host app launchers
 
 After building and launching the workshop, install the launchers you want as
 your desktop user. Use `--all` to install every SDK with launcher metadata:
 
 ```sh
-./bin/workshop-desktop host launchers install --all
+./bin/workshop-desktop host install-launcher --all
 ```
 
 To install individual entries, pass the SDK name:
 
 ```sh
-./bin/workshop-desktop host launchers install any
-./bin/workshop-desktop host launchers install firefox
-./bin/workshop-desktop host launchers install codex-desktop
+./bin/workshop-desktop host install-launcher any
+./bin/workshop-desktop host install-launcher firefox
+./bin/workshop-desktop host install-launcher codex-desktop
 ```
 
 | SDK | App menu label | Desktop file |
@@ -94,9 +99,10 @@ AppImage, Firefox Snap, and ChatGPT Debian package. Each launcher runs its
 existing `apps` action in this checkout. Start the host helpers before using
 the launchers.
 
-Run the same command again to update an entry. Replace `install` with
-`remove` to uninstall it. Use `remove --all` to uninstall all entries for this checkout. Before moving the checkout, remove the entries
-and reinstall them from the new path.
+Run the same command again to update an entry. Use `host remove-launcher SDK`
+to uninstall one entry or `host remove-launcher --all` to uninstall all entries
+for this checkout. Before moving the checkout, remove the entries and reinstall
+them from the new path.
 
 On the target desktop, search for each installed app, launch it, and check
 that its running window groups under the pinned launcher. Dock grouping
@@ -141,7 +147,7 @@ See [host URL opening](docs/desktop-integration.md#host-url-opening) for details
 
 When upgrading from the dedicated opener bridge, stop any standalone
 `workshop-desktop host open` process before refreshing the apps workshop.
-Use `host dbus` or `host serve` for URL opening after the upgrade.
+Use `host serve --handlers dbus` or `host serve` for URL opening after the upgrade.
 
 Follow the [refresh workflow](.kb/desktop-development.md#apply-source-changes) after rebuilding.
 

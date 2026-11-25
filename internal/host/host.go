@@ -4,9 +4,7 @@ package host
 import (
 	"context"
 	"errors"
-	"flag"
 	"fmt"
-	"io"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -122,61 +120,30 @@ func ClearSocket(path string) error {
 	return os.Remove(path)
 }
 
-// Run supplies common flags, signal handling, private paths and error reporting.
-func Run(capability string, args []string, stderr io.Writer, register func(*flag.FlagSet), run func(context.Context, Project) error) int {
-	return runCommand(capability, args, stderr, register, Load, run)
-}
-
-// RunForDirectory runs a command that only needs the canonical checkout path.
-func RunForDirectory(capability string, args []string, stderr io.Writer, run func(context.Context, Project) error) int {
-	return runCommand(capability, args, stderr, nil, loadDirectory, run)
-}
-
-func runCommand(capability string, args []string, stderr io.Writer, register func(*flag.FlagSet), load func(string) (Project, error), run func(context.Context, Project) error) int {
-	logger := logging.New(stderr).With("command", capability)
-	flags := flag.NewFlagSet("workshop-desktop host "+capability, flag.ContinueOnError)
-	flags.SetOutput(stderr)
-	directory := flags.String("project", ".", "workshop project directory")
-	if register != nil {
-		register(flags)
-	}
-
-	if err := flags.Parse(args); err != nil {
-		if errors.Is(err, flag.ErrHelp) {
-			return 0
-		}
-		return 2
-	}
-	if flags.NArg() != 0 {
-		logger.Error("unexpected positional arguments")
-		return 2
-	}
-
+// Run supplies signal handling and loads the project for a host operation.
+// directoryOnly allows launcher removal after the workshop was removed.
+func Run(ctx context.Context, directory string, directoryOnly bool, run func(context.Context, Project) error) error {
 	if os.Getuid() == 0 {
-		logger.Error("run as your desktop user, without sudo")
-		return 1
+		return errors.New("run as your desktop user without sudo")
 	}
 	syscall.Umask(0o077)
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	ctx = logging.WithLogger(ctx, logger)
+	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
+	defer stop()
 
-	err := func() error {
-		p, err := load(*directory)
-		if err != nil {
-			return err
-		}
-
-		return run(ctx, p)
-	}()
-
+	load := Load
+	if directoryOnly {
+		load = loadDirectory
+	}
+	p, err := load(directory)
+	if err != nil {
+		return err
+	}
+	err = run(ctx, p)
 	if ctx.Err() != nil {
-		logger.InfoContext(ctx, "host command canceled", "cause", context.Cause(ctx))
+		logging.Logger(ctx).InfoContext(ctx, "Host command canceled.", "cause", context.Cause(ctx))
+		if errors.Is(err, ctx.Err()) {
+			return nil
+		}
 	}
-	stop()
-
-	if err != nil && !errors.Is(err, context.Canceled) {
-		logger.ErrorContext(ctx, "host command failed", "error", err)
-		return 1
-	}
-	return 0
+	return err
 }

@@ -10,71 +10,6 @@ import (
 	"testing"
 )
 
-func TestAudioWrapperPreservesApplicationEnvironmentAndArguments(t *testing.T) {
-	root := t.TempDir()
-	log := filepath.Join(root, "service")
-	content, err := os.ReadFile("../.workshop/host-integration/bin/workshop-host-audio")
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	binary := filepath.Join(root, "workshop-desktop")
-	if output, err := exec.Command("go", "build", "-o", binary, "../cmd/workshop-desktop").CombinedOutput(); err != nil {
-		t.Fatalf("build guest commands: %v, %s", err, output)
-	}
-	wrapper := filepath.Join(root, "workshop-host-audio")
-	if err := os.WriteFile(wrapper, []byte(strings.Replace(string(content), "/usr/local/bin/workshop-desktop", binary, 1)), 0o700); err != nil {
-		t.Fatal(err)
-	}
-
-	script := "#!/bin/sh\nprintf '%s\\n' \"$XDG_RUNTIME_DIR\" \"$DBUS_SESSION_BUS_ADDRESS\" \"$@\" > \"$AUDIO_TEST_LOG\"\nexit \"${AUDIO_TEST_STATUS:-0}\"\n"
-	if err := os.WriteFile(filepath.Join(root, "systemctl"), []byte(script), 0o755); err != nil {
-		t.Fatal(err)
-	}
-
-	t.Setenv("PATH", root)
-	t.Setenv("AUDIO_TEST_LOG", log)
-	t.Setenv("XDG_RUNTIME_DIR", "/custom/runtime")
-	t.Setenv("DBUS_SESSION_BUS_ADDRESS", "unix:path=/host/proxy")
-	t.Setenv("PULSE_SERVER", "old-server")
-	t.Setenv("AUDIO_TEST_STATUS", "0")
-
-	args := []string{
-		wrapper, "/bin/sh", "-c",
-		`printf '%s\n' "$XDG_RUNTIME_DIR" "$DBUS_SESSION_BUS_ADDRESS" "$PULSE_SERVER" "$@"; exit 7`,
-		"application", "argument with spaces", "$(not a shell command)",
-	}
-	cmd := exec.Command("/bin/bash", args...)
-	output, err := cmd.CombinedOutput()
-	if exit, ok := err.(*exec.ExitError); !ok || exit.ExitCode() != 7 {
-		t.Fatalf("lost application status: %v, %s", err, output)
-	}
-
-	want := "/custom/runtime\nunix:path=/host/proxy\nunix:/run/user/1000/pulse/native\nargument with spaces\n$(not a shell command)\n"
-	if string(output) != want {
-		t.Fatalf("changed application environment or arguments: %q", output)
-	}
-
-	service, err := os.ReadFile(log)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(service) != "/run/user/1000\nunix:path=/run/user/1000/bus\n--user\nstart\nworkshop-pipewire-pulse.service\n" {
-		t.Fatalf("service did not use local bus: %s", service)
-	}
-
-	t.Setenv("AUDIO_TEST_STATUS", "9")
-	output, err = exec.Command("/bin/bash", args...).CombinedOutput()
-	if exit, ok := err.(*exec.ExitError); !ok || exit.ExitCode() != 9 || len(output) != 0 {
-		t.Fatalf("ignored service failure: %v, %s", err, output)
-	}
-
-	output, err = exec.Command("/bin/bash", wrapper).CombinedOutput()
-	if exit, ok := err.(*exec.ExitError); !ok || exit.ExitCode() != 2 || !strings.Contains(string(output), "Usage:") {
-		t.Fatalf("missing command accepted: %v, %s", err, output)
-	}
-}
-
 func TestSetupRequiresBuiltBinaryBeforeChangingGuest(t *testing.T) {
 	hook, err := filepath.Abs("../.workshop/host-integration/hooks/setup-base")
 	if err != nil {
@@ -209,7 +144,7 @@ func TestSetupInstallsStagedLauncherAndGuestWrappers(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	for _, path := range []string{"hooks/setup-base", "bin/xdg-open", "bin/workshop-host-audio", "systemd/workshop-pipewire-pulse.service"} {
+	for _, path := range []string{"hooks/setup-base", "bin/xdg-open", "systemd/workshop-pipewire-pulse.service"} {
 		content, err := os.ReadFile(filepath.Join("../.workshop/host-integration", path))
 		if err != nil {
 			t.Fatal(err)
@@ -233,6 +168,11 @@ func TestSetupInstallsStagedLauncherAndGuestWrappers(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	oldWrapper := filepath.Join(guest, "usr/local/bin/workshop-host-audio")
+	if err := os.WriteFile(oldWrapper, []byte("old wrapper"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
 	// Run the unchanged hook. Only the tools that touch the filesystem
 	// redirect their writes into the disposable root.
 	for name, script := range map[string]string{
@@ -250,8 +190,8 @@ case "$4" in
 esac
 `,
 		"rm": `#!/bin/sh
-[ "$#" = 2 ] && [ "$1" = -f ] && [ "$2" = /etc/profile.d/workshop-host-audio.sh ] || exit 88
-exec "$SETUP_TEST_REMOVE" "$1" "$SETUP_TEST_ROOT$2"
+[ "$#" = 3 ] && [ "$1" = -f ] && [ "$2" = /etc/profile.d/workshop-host-audio.sh ] && [ "$3" = /usr/local/bin/workshop-host-audio ] || exit 88
+exec "$SETUP_TEST_REMOVE" "$1" "$SETUP_TEST_ROOT$2" "$SETUP_TEST_ROOT$3"
 `,
 		"dpkg-divert": `#!/bin/sh
 exec "$SETUP_TEST_DIVERT" --root "$SETUP_TEST_ROOT" "$@"
@@ -282,7 +222,6 @@ exec "$SETUP_TEST_DIVERT" --root "$SETUP_TEST_ROOT" "$@"
 			mode           os.FileMode
 		}{
 			{"bin/workshop-desktop", "usr/local/bin/workshop-desktop", 0o755},
-			{"bin/workshop-host-audio", "usr/local/bin/workshop-host-audio", 0o755},
 			{"bin/xdg-open", "usr/bin/xdg-open", 0o755},
 			{"systemd/workshop-pipewire-pulse.service", "etc/systemd/user/workshop-pipewire-pulse.service", 0o644},
 		} {
@@ -303,8 +242,10 @@ exec "$SETUP_TEST_DIVERT" --root "$SETUP_TEST_ROOT" "$@"
 		if got, err := os.ReadFile(opener + ".distrib"); err != nil || string(got) != packagedOpener {
 			t.Fatalf("did not preserve the packaged opener: %q, %v", got, err)
 		}
-		if _, err := os.Stat(profile); !os.IsNotExist(err) {
-			t.Fatalf("old profile remains: %v", err)
+		for _, obsolete := range []string{profile, oldWrapper} {
+			if _, err := os.Stat(obsolete); !os.IsNotExist(err) {
+				t.Fatalf("obsolete file %s remains: %v", obsolete, err)
+			}
 		}
 	}
 	output, err := exec.Command(divert, "--root", guest, "--truename", "/usr/bin/xdg-open").CombinedOutput()

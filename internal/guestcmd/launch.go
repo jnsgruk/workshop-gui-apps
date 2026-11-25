@@ -3,15 +3,17 @@ package guestcmd
 import (
 	"context"
 	"errors"
-	"flag"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"os/exec"
 	"slices"
 	"strings"
 	"syscall"
 	"time"
+
+	"workshop-desktop/internal/logging"
 )
 
 const (
@@ -20,70 +22,47 @@ const (
 	pipeWireSocket = "/mnt/workshop-host/pipewire/pipewire-0"
 )
 
-const LaunchUsage = "Usage: workshop-desktop guest launch --session-bus=host|local COMMAND [ARG...]"
-
-func Launch(args []string, stdout, stderr io.Writer) int {
-	return launch(args, stdout, stderr, os.Getuid(), guestRuntime, hostBusSocket, pipeWireSocket)
+// Launch runs a command with the selected session bus and host audio.
+func Launch(command []string, sessionBus string, stdout, stderr io.Writer, verbosity logging.Verbosity) (int, error) {
+	return launch(command, sessionBus, stdout, stderr, os.Getuid(), guestRuntime, hostBusSocket, pipeWireSocket, verbosity)
 }
 
-func launch(args []string, stdout, stderr io.Writer, uid int, runtime, hostBusSocket, pipeWireSocket string) int {
-	flags := flag.NewFlagSet("launch", flag.ContinueOnError)
-	flags.SetOutput(stderr)
-	flags.Usage = func() { _, _ = fmt.Fprintln(flags.Output(), LaunchUsage) }
-	bus := flags.String("session-bus", "", "session bus for the launched command")
-	if len(args) == 1 && (args[0] == "-h" || args[0] == "--help") {
-		_, _ = fmt.Fprintln(stdout, LaunchUsage)
-		return 0
-	}
-	if err := flags.Parse(args); err != nil {
-		if errors.Is(err, flag.ErrHelp) {
-			return 0
-		}
-		return 2
-	}
-	if flags.NArg() == 0 || (*bus != "host" && *bus != "local") {
-		flags.Usage()
-		return 2
-	}
+func launch(command []string, sessionBus string, stdout, stderr io.Writer, uid int, runtime, hostBusSocket, pipeWireSocket string, verbosity logging.Verbosity) (int, error) {
 	if uid != 1000 {
-		_, _ = fmt.Fprintln(stderr, "Run the launcher as the workshop user (UID 1000).")
-		return 1
+		return 1, errors.New("run the launcher as the workshop user (UID 1000)")
 	}
 	if os.Getenv("WAYLAND_DISPLAY") == "" {
-		_, _ = fmt.Fprintln(stderr, "A Wayland display is required. Run workshop-desktop host connect from your host graphical session.")
-		return 1
+		return 1, errors.New("a Wayland display is required. Run workshop-desktop host connect from your host graphical session")
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx := logging.WithCLIOutput(context.Background(), "guest launch", verbosity, stdout, stderr)
+	probeCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
-	probe := exec.CommandContext(ctx, "wayland-info")
+	probe := exec.CommandContext(probeCtx, "wayland-info")
+	probe.WaitDelay = time.Second
 	probe.Env = append(os.Environ(), "XDG_RUNTIME_DIR="+runtime)
-	probe.Stderr = stderr
-	if err := probe.Run(); err != nil {
-		_, _ = fmt.Fprintf(stderr, "Cannot connect to the Wayland display: %v. Reconnect the workshop from your host graphical session.\n", err)
-		return 1
+	if err := runSetup(probeCtx, probe, verbosity); err != nil {
+		return 1, fmt.Errorf("cannot connect to the Wayland display: %w. Reconnect the workshop from your host graphical session", err)
 	}
 
 	socket := runtime + "/bus"
-	if *bus == "host" {
+	if sessionBus == "host" {
 		socket = hostBusSocket
 	}
 	if !isSocket(socket) {
-		_, _ = fmt.Fprintf(stderr, "Required session D-Bus socket is missing at %s. Check the guest user session and keep workshop-desktop host serve running.\n", socket)
-		return 1
+		return 1, fmt.Errorf("required session D-Bus socket is missing at %s. Check the guest user session and keep workshop-desktop host serve running", socket)
 	}
 	if !isSocket(pipeWireSocket) {
-		_, _ = fmt.Fprintln(stderr, "Host PipeWire socket is missing. Keep workshop-desktop host serve running.")
-		return 1
+		return 1, errors.New("host PipeWire socket is missing. Keep workshop-desktop host serve running")
 	}
 
-	cmd := exec.Command(flags.Arg(0), flags.Args()[1:]...)
+	cmd := exec.Command(command[0], command[1:]...)
 	cmd.Env = append(os.Environ(), "XDG_RUNTIME_DIR="+runtime,
 		"DBUS_SESSION_BUS_ADDRESS=unix:path="+socket, "GDK_BACKEND=wayland")
 	cmd.Env = slices.DeleteFunc(cmd.Environ(), func(entry string) bool {
 		return strings.HasPrefix(entry, "DBUS_SYSTEM_BUS_ADDRESS=")
 	})
-	return startAudioAndExec(cmd, stdout, stderr, runtime)
+	return startAudioAndExec(ctx, cmd, runtime, verbosity)
 }
 
 func isSocket(path string) bool {
@@ -91,35 +70,41 @@ func isSocket(path string) bool {
 	return err == nil && info.Mode()&os.ModeSocket != 0
 }
 
-// Audio preserves the caller's environment for legacy workshop-host-audio callers.
-func Audio(args []string, stdout, stderr io.Writer) int {
-	if len(args) == 0 {
-		_, _ = fmt.Fprintln(stderr, "Usage: workshop-host-audio COMMAND [ARG...]")
-		return 2
-	}
-	return startAudioAndExec(exec.Command(args[0], args[1:]...), stdout, stderr, guestRuntime)
-}
-
-func startAudioAndExec(cmd *exec.Cmd, stdout, stderr io.Writer, runtime string) int {
-	service := exec.Command("systemctl", "--user", "start", "workshop-pipewire-pulse.service")
+func startAudioAndExec(ctx context.Context, cmd *exec.Cmd, runtime string, verbosity logging.Verbosity) (int, error) {
+	service := exec.CommandContext(ctx, "systemctl", "--user", "start", "workshop-pipewire-pulse.service")
+	service.WaitDelay = time.Second
 	service.Env = append(os.Environ(), "XDG_RUNTIME_DIR="+runtime, "DBUS_SESSION_BUS_ADDRESS=unix:path="+runtime+"/bus")
-	service.Stdin, service.Stdout, service.Stderr = os.Stdin, stdout, stderr
-	if err := service.Run(); err != nil {
+	service.Stdin = os.Stdin
+	if err := runSetup(ctx, service, verbosity); err != nil {
+		code := 1
 		if status, ok := errors.AsType[*exec.ExitError](err); ok && status.ExitCode() > 0 {
-			return status.ExitCode()
+			code = status.ExitCode()
 		}
-		_, _ = fmt.Fprintln(stderr, err)
-		return 1
+		return code, fmt.Errorf("cannot start the host audio service: %w", err)
 	}
 
 	if cmd.Err != nil {
-		_, _ = fmt.Fprintln(stderr, cmd.Err)
-		return 127
+		return 127, fmt.Errorf("cannot find command %q: %w", cmd.Args[0], cmd.Err)
 	}
 	cmd.Env = append(cmd.Environ(), "PULSE_SERVER=unix:"+runtime+"/pulse/native")
 	if err := syscall.Exec(cmd.Path, cmd.Args, cmd.Environ()); err != nil {
-		_, _ = fmt.Fprintln(stderr, err)
-		return 126
+		return 126, fmt.Errorf("cannot run command %q: %w", cmd.Args[0], err)
 	}
-	return 0
+	return 0, nil
+}
+
+// runSetup logs helper output in verbose mode and retains stderr on failure.
+func runSetup(ctx context.Context, cmd *exec.Cmd, verbosity logging.Verbosity) error {
+	var detail logging.ErrorDetail
+	cmd.Stderr = &detail
+	if verbosity == logging.Verbose {
+		logger := logging.Logger(ctx).With("helper", cmd.Args[0])
+		logger.InfoContext(ctx, "Run desktop setup helper", "args", cmd.Args[1:])
+		stdout := &logging.Writer{Context: ctx, Logger: logger.With("stream", "stdout"), Level: slog.LevelInfo}
+		stderr := &logging.Writer{Context: ctx, Logger: logger.With("stream", "stderr"), Level: slog.LevelInfo, Detail: &detail}
+		cmd.Stdout, cmd.Stderr = stdout, stderr
+		defer stdout.Flush()
+		defer stderr.Flush()
+	}
+	return detail.Wrap(cmd.Run())
 }

@@ -2,6 +2,7 @@ package guestcmd
 
 import (
 	"errors"
+	"fmt"
 	"net"
 	"os"
 	"os/exec"
@@ -9,6 +10,8 @@ import (
 	"strings"
 	"syscall"
 	"testing"
+
+	"workshop-desktop/internal/logging"
 )
 
 // The subprocess runs the same launcher as the CLI and lets it replace itself.
@@ -18,11 +21,23 @@ func TestLaunchChild(t *testing.T) {
 		return
 	}
 	args := os.Args[4:]
-	if len(args) < 2 || args[0] != "guest" || args[1] != "launch" {
+	if len(args) < 6 || args[0] != "guest" || args[1] != "launch" ||
+		args[2] != "--session-bus" || args[4] != "--" {
 		t.Fatalf("unexpected launch arguments: %q", args)
 	}
-	os.Exit(launch(args[2:], os.Stdout, os.Stderr, 1000, root,
-		filepath.Join(root, "host-bus"), filepath.Join(root, "pipewire")))
+	verbosity := logging.Brief
+	switch os.Getenv("LAUNCH_TEST_VERBOSITY") {
+	case "quiet":
+		verbosity = logging.Quiet
+	case "verbose":
+		verbosity = logging.Verbose
+	}
+	code, err := launch(args[5:], args[3], os.Stdout, os.Stderr, 1000, root,
+		filepath.Join(root, "host-bus"), filepath.Join(root, "pipewire"), verbosity)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+	}
+	os.Exit(code)
 }
 
 func TestGuestLaunch(t *testing.T) {
@@ -50,10 +65,14 @@ exec "$LAUNCH_TEST_BINARY" -test.run='^TestLaunchChild$' -- launch-child "$@"
 			"/usr/local/bin/workshop-desktop", `"$LAUNCH_TEST_ROOT/workshop-desktop"`, 1),
 		"wayland-info": `#!/bin/sh
 printf '%s\n' "$WAYLAND_DISPLAY" "$XDG_RUNTIME_DIR" > "$LAUNCH_TEST_ROOT/probe-log"
+printf '%s\n' "probe output"
+printf '%s\n' "probe diagnostic" >&2
 exit "${PROBE_STATUS:-0}"
 `,
 		"systemctl": `#!/bin/sh
 printf '%s\n' "$XDG_RUNTIME_DIR" "$DBUS_SESSION_BUS_ADDRESS" "$@" > "$LAUNCH_TEST_ROOT/service-log"
+printf '%s\n' "service output"
+printf '%s\n' "service diagnostic" >&2
 `,
 		"snap": `#!/bin/sh
 printf '%s\n' "$DBUS_SESSION_BUS_ADDRESS" "$MOZ_ENABLE_WAYLAND" "$1" "$2" "$3" > "$LAUNCH_TEST_ROOT/snap-log"
@@ -117,15 +136,15 @@ exit 8
 	localBus := filepath.Join(root, "bus")
 	hostLaunch := func() *exec.Cmd {
 		return exec.Command(filepath.Join(root, "workshop-desktop"), "guest", "launch",
-			"--session-bus=host", app, "argument with spaces", "$(not a shell command)")
+			"--session-bus", "host", "--", app, "", "--", "--help", "argument with spaces", "$(not a shell command)")
 	}
 	t.Run("prerequisites", func(t *testing.T) {
 		for _, tc := range []struct {
 			name, display, status, message string
 		}{
-			{"no display", "", "0", "A Wayland display is required"},
-			{"failed display probe", "test-display", "9", "Cannot connect to the Wayland display"},
-			{"missing host bus", "test-display", "0", "Required session D-Bus socket is missing at " + hostBus},
+			{"no display", "", "0", "a Wayland display is required"},
+			{"failed display probe", "test-display", "9", `cannot connect to the Wayland display: exit status 9: "probe diagnostic"`},
+			{"missing host bus", "test-display", "0", "required session D-Bus socket is missing at " + hostBus},
 		} {
 			t.Run(tc.name, func(t *testing.T) {
 				t.Setenv("WAYLAND_DISPLAY", tc.display)
@@ -136,7 +155,7 @@ exit 8
 			})
 		}
 		listen(t, hostBus)
-		if output := run(t, hostLaunch(), 1); !strings.Contains(output, "Host PipeWire socket is missing") {
+		if output := run(t, hostLaunch(), 1); !strings.Contains(output, "host PipeWire socket is missing") {
 			t.Fatalf("missing PipeWire prerequisite error: %q", output)
 		}
 		if _, err := os.Stat(serviceLog); !os.IsNotExist(err) {
@@ -146,21 +165,39 @@ exit 8
 	listen(t, hostBus)
 	listen(t, filepath.Join(root, "pipewire"))
 	listen(t, localBus)
-	t.Run("host mode", func(t *testing.T) {
-		output := run(t, hostLaunch(), 8)
-		want := root + "\nunix:path=" + hostBus + "\nunset\nwayland\nunix:" + root +
-			"/pulse/native\nargument with spaces\n$(not a shell command)\n"
-		if output != want {
-			t.Fatalf("wrong application environment or arguments: %q", output)
-		}
-		assertLog(t, probeLog, "test-display\n"+root+"\n")
-		assertLog(t, serviceLog, root+"\nunix:path="+localBus+"\n--user\nstart\nworkshop-pipewire-pulse.service\n")
-	})
+	for _, verbosity := range []string{"brief", "quiet", "verbose"} {
+		t.Run("host mode "+verbosity, func(t *testing.T) {
+			t.Setenv("LAUNCH_TEST_VERBOSITY", verbosity)
+			var stderr strings.Builder
+			cmd := hostLaunch()
+			cmd.Stderr = &stderr
+			output, err := cmd.Output()
+			if exit, ok := errors.AsType[*exec.ExitError](err); !ok || exit.ExitCode() != 8 {
+				t.Fatalf("lost application status: %v, %s", err, &stderr)
+			}
+			want := root + "\nunix:path=" + hostBus + "\nunset\nwayland\nunix:" + root +
+				"/pulse/native\n\n--\n--help\nargument with spaces\n$(not a shell command)\n"
+			if string(output) != want {
+				t.Fatalf("wrong application environment or arguments: %q", output)
+			}
+			if verbosity == "verbose" {
+				for _, detail := range []string{"time=", "msg=\"probe output\"", "msg=\"probe diagnostic\"", "msg=\"service output\"", "msg=\"service diagnostic\""} {
+					if !strings.Contains(stderr.String(), detail) {
+						t.Errorf("missing %q in verbose output: %s", detail, &stderr)
+					}
+				}
+			} else if stderr.Len() != 0 {
+				t.Fatalf("unexpected helper output: %s", &stderr)
+			}
+			assertLog(t, probeLog, "test-display\n"+root+"\n")
+			assertLog(t, serviceLog, root+"\nunix:path="+localBus+"\n--user\nstart\nworkshop-pipewire-pulse.service\n")
+		})
+	}
 	t.Run("firefox snap", func(t *testing.T) {
 		args := []string{firefox, "argument with spaces", "$(not a shell command)"}
 		snapWant := "unix:path=" + localBus + "\n1\nrun\n--shell\nfirefox\n"
 
-		if output := run(t, exec.Command("/bin/bash", args...), 1); !strings.Contains(output, "Host session D-Bus socket is missing") {
+		if output := run(t, exec.Command("/bin/bash", args...), 1); !strings.Contains(output, "host session D-Bus socket is missing") {
 			t.Fatalf("missing confined bus error: %q", output)
 		}
 		assertLog(t, snapLog, snapWant)

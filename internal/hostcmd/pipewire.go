@@ -51,6 +51,10 @@ func runPipeWire(ctx context.Context, p host.Project) error {
 
 	_ = writer.Close()
 	defer process.Stop()
+	startupError := func(err error) error {
+		process.Stop()
+		return process.WithErrorDetail(err)
+	}
 
 	type announcement struct {
 		line string
@@ -77,7 +81,7 @@ func runPipeWire(ctx context.Context, p host.Project) error {
 			logger.InfoContext(ctx, scanner.Text())
 		}
 		if err := scanner.Err(); err != nil && ctx.Err() == nil && !errors.Is(err, os.ErrClosed) {
-			logger.WarnContext(ctx, "could not read pw-container diagnostics", "error", err)
+			logger.WarnContext(ctx, "cannot read pw-container diagnostics", "error", err)
 			// Keep draining stdout if scanning stopped at an oversized line.
 			_, _ = io.Copy(io.Discard, reader)
 		}
@@ -94,16 +98,16 @@ func runPipeWire(ctx context.Context, p host.Project) error {
 	case <-ctx.Done():
 		return ctx.Err()
 	case <-timer.C:
-		return fmt.Errorf("pw-container did not publish a socket within 10 seconds")
+		return startupError(fmt.Errorf("pw-container did not publish a socket within 10 seconds"))
 	case result := <-startup:
 		if result.err != nil {
-			return result.err
+			return startupError(result.err)
 		}
 		if err := pipewire.Publish(result.line, socket); err != nil {
-			return err
+			return startupError(err)
 		}
 	}
 
-	logging.Logger(ctx).InfoContext(ctx, "PipeWire ready", "socket", socket)
+	logging.Progress(ctx, "PipeWire ready.", "socket", socket)
 	return process.Wait(ctx)
 }

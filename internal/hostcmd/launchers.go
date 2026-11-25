@@ -154,7 +154,7 @@ func manageLauncher(ctx context.Context, p host.Project, sdk string, install boo
 	if err := writeLauncherFile(desktopPath, []byte(entry)); err != nil {
 		return err
 	}
-	logging.Logger(ctx).InfoContext(ctx, "Installed desktop launcher", "path", desktopPath)
+	logging.Result(ctx, fmt.Sprintf("Installed desktop launcher at %q.", desktopPath))
 	return nil
 }
 
@@ -276,7 +276,7 @@ func removeLauncher(ctx context.Context, desktop, icon string) error {
 	if err := os.Remove(desktop); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
-	logging.Logger(ctx).InfoContext(ctx, "Removed desktop launcher", "path", desktop)
+	logging.Result(ctx, fmt.Sprintf("Removed desktop launcher at %q.", desktop))
 	return nil
 }
 

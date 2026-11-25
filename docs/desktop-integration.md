@@ -79,13 +79,13 @@ The host session manager controls device access and routing. Playback,
 microphone capture, and speaker-monitor capture are distinct permissions. A
 source ending in `.monitor` captures speaker output. Website consent applies inside Firefox.
 
-[Host helper](../internal/hostcmd/pipewire.go) · [Guest service](../.workshop/host-integration/systemd/workshop-pipewire-pulse.service) · [Audio wrapper](../.workshop/host-integration/bin/workshop-host-audio) · [pw-container](https://docs.pipewire.org/page_man_pw-container_1.html) · [PipeWire native protocol](https://docs.pipewire.org/page_native_protocol.html) · [WirePlumber client access](https://pipewire.pages.freedesktop.org/wireplumber/policies/client_access.html)
+[Host helper](../internal/hostcmd/pipewire.go) · [Guest service](../.workshop/host-integration/systemd/workshop-pipewire-pulse.service) · [pw-container](https://docs.pipewire.org/page_man_pw-container_1.html) · [PipeWire native protocol](https://docs.pipewire.org/page_native_protocol.html) · [WirePlumber client access](https://pipewire.pages.freedesktop.org/wireplumber/policies/client_access.html)
 
 ### Host URL opening
 
 The guest `/usr/bin/xdg-open` wrapper takes one non-file URI and uses
 `gdbus` to call `org.freedesktop.portal.OpenURI.OpenURI` on the filtered host
-session bus at `/mnt/workshop-host/session/bus`. Run `host dbus` or
+session bus at `/mnt/workshop-host/session/bus`. Run `host serve --handlers dbus` or
 `host serve` to publish that socket. The portal selects the host handler.
 A successful exit means the portal returned a request handle. Application
 launch and any user choice happen asynchronously.
@@ -98,10 +98,10 @@ use their own bus selection and confinement rules.
 
 ## Host and guest lifecycle
 
-The [command entry point](../cmd/workshop-desktop/main.go) dispatches host and
-guest roles. Guest dispatch runs before host initialization. The dev build
-stages the same static binary for the
-host-integration SDK to install at `/usr/local/bin/workshop-desktop`.
+The [command entry point](../cmd/workshop-desktop/main.go) parses host and
+guest commands before any project or desktop initialization. The dev build
+stages the same static binary for the host-integration SDK to install at
+`/usr/local/bin/workshop-desktop`.
 
 [Connection setup](../internal/hostcmd/connect.go) stops the guest, remounts
 the endpoint directories, restarts the guest, and connects desktop and camera.
@@ -118,22 +118,23 @@ and GID 1000 and allow clients to connect to the sockets. Service policy
 controls the operations available over those connections. Mounting under
 `/mnt` keeps the endpoints outside the guest's boot-managed runtime directory.
 
-[`host up`](../internal/hostcmd/up.go) queries Workshop’s local daemon for
+[`host start`](../internal/hostcmd/up.go) queries Workshop’s local daemon for
 mounts and interface connections for every selected workshop before making
 changes. It connects missing plugs, repairs stale mount sources, and verifies
 repairs before starting the handlers. It holds both capability locks for the
-lifetime of the command, including when `--only` selects one handler.
+lifetime of the command, including when `--handlers` selects one handler.
 
 Each handler reports readiness and owns its own lock and cleanup.
 [Grouped serving](../internal/hostcmd/serve.go) runs all handlers by default.
-`--only` accepts a comma-separated list of handler names and runs each named
+`--handlers` accepts a comma-separated list of handler names and runs each named
 handler once. A filtered server and individual helpers can run together when
 their capabilities do not overlap. If one handler fails, the server stops the
 others and waits for cleanup. On shutdown, D-Bus and PipeWire
 children receive SIGTERM and are forcibly terminated if they exceed the wait
 limit. Reconnect after the host clears `/tmp` and restart affected guest clients
-as needed. Runtime diagnostics and child-process output use Go's `slog` text
-handler on stderr. Help and version output use plain text.
+as needed. Brief output gives plain readiness and progress messages on stderr.
+Use `--quiet` for CLI errors only and `--verbose` for timestamped diagnostics
+on stderr. Requested help and version go to stdout.
 
 [Host dispatch](../internal/hostcmd/host.go) · [Host lifecycle utilities](../internal/host) · [Development build](../.workshop/dev.yaml)
 
@@ -164,12 +165,12 @@ to install the updated pin. The launcher uses the installed path on every run,
 forwards arguments, and uses `--appimage-extract-and-run` to run without FUSE
 while keeping the application’s sandbox defaults.
 
-Both app actions use `workshop-desktop guest launch`. Any selects
-`--session-bus=host`. Firefox selects `--session-bus=local` so Snap can
-create its systemd scope and then switches to the filtered host bus inside
-confinement. The launch command requires the Wayland connection and the
-mounted PipeWire socket. The compatibility command `workshop-host-audio`
-starts the audio service and sets `PULSE_SERVER` for its command.
+Both app actions use `workshop-desktop guest launch --session-bus MODE -- COMMAND [ARG...]`.
+Any selects `host`. Firefox selects `local` so Snap can create its systemd scope
+and then switches to the filtered host bus inside confinement. Everything after
+`--` is passed to the program verbatim. The launch command requires the Wayland
+connection and the mounted PipeWire socket. The launcher starts the audio
+service on demand and sets `PULSE_SERVER` for the application.
 
 The Firefox setup hook enables snapd, waits for seeding, and installs Firefox from
 `latest/stable` if absent. An existing install keeps its channel. The desktop
@@ -213,9 +214,9 @@ Run these checks in the connected `apps` workshop with the host handlers
 running. The [automated tests](../.kb/desktop-development.md#testing) cover
 the helpers and wrappers.
 
-For the combined startup, run `host up` after launching `apps` and wait for
-both helpers to report ready. Stop `host up` with Ctrl-C, leave a guest app
-running, then run `host up` again. Verify that the guest app retains its
+For the combined startup, run `host start` after launching `apps` and wait for
+both helpers to report ready. Stop `host start` with Ctrl-C, leave a guest app
+running, then run `host start` again. Verify that the guest app retains its
 process ID and the helpers report ready again.
 
 | Capability | What to verify in a live session |

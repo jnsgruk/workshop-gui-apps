@@ -42,8 +42,9 @@ read errors, and malformed announcements.
 
 ## Development workflow
 
-The [development workshop](../.workshop/dev.yaml) uses Go 1.27 and the standard
-library to build one static `workshop-desktop` binary with host and guest subcommands:
+The [development workshop](../.workshop/dev.yaml) uses Go 1.27 to build one
+static `workshop-desktop` binary with host and guest subcommands. The CLI parser
+uses the `github.com/canonical/go-flags` module.
 
 ```sh
 workshop launch dev
@@ -53,16 +54,19 @@ workshop run dev -- build
 Build writes `bin/workshop-desktop` and stages the same binary for the
 [host integration setup hook](../.workshop/host-integration/hooks/setup-base).
 Build before launching or refreshing the [apps workshop](../.workshop/apps.yaml).
-The hook requires the staged binary. Its architecture must match the host and
-guest. The runtime SDKs need neither Go nor Python.
+Set `WORKSHOP_DESKTOP_VERSION` in the build action environment to embed a
+release version. The default is `dev`. Run `bin/workshop-desktop version` to
+check the staged build. The hook requires the staged binary. Its architecture
+must match the host and guest. The runtime SDKs need neither Go nor Python.
 
 ## Apply source changes
 
 Rebuild after Go changes. For guest SDK changes, stop the helpers, build, run
 `workshop refresh apps`, reconnect with `bin/workshop-desktop host connect`,
 then restart the helpers and relaunch your apps. Go-only host changes take
-effect after rebuilding and restarting the host helpers. Refresh the guest
-when it needs the updated shared binary.
+effect after rebuilding and restarting the host helpers. When changing the CLI
+and guest wrappers together, build first and refresh `apps` to install the
+staged binary and wrappers together.
 
 ## Testing
 

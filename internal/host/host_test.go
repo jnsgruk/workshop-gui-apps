@@ -271,8 +271,8 @@ func TestProcessOutputUsesCommandLogger(t *testing.T) {
 	want := map[string]record{
 		"child output":        {Level: "INFO", Stream: "stdout"},
 		"trailing output":     {Level: "INFO", Stream: "stdout"},
-		"child diagnostic":    {Level: "WARN", Stream: "stderr"},
-		"trailing diagnostic": {Level: "WARN", Stream: "stderr"},
+		"child diagnostic":    {Level: "INFO", Stream: "stderr"},
+		"trailing diagnostic": {Level: "INFO", Stream: "stderr"},
 	}
 	decoder := json.NewDecoder(&output)
 	for {

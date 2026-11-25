@@ -17,6 +17,7 @@ type Process struct {
 	done    chan struct{}
 	err     error
 	cancel  context.CancelFunc
+	detail  *logging.ErrorDetail
 }
 
 func Start(ctx context.Context, configure func(*exec.Cmd), name string, args ...string) (*Process, error) {
@@ -25,7 +26,8 @@ func Start(ctx context.Context, configure func(*exec.Cmd), name string, args ...
 	cmd := exec.CommandContext(ctx, name, args...)
 	logger := logging.Logger(ctx).With("process", name)
 	stdout := &logging.Writer{Context: ctx, Logger: logger.With("stream", "stdout"), Level: slog.LevelInfo}
-	stderr := &logging.Writer{Context: ctx, Logger: logger.With("stream", "stderr"), Level: slog.LevelWarn}
+	detail := &logging.ErrorDetail{}
+	stderr := &logging.Writer{Context: ctx, Logger: logger.With("stream", "stderr"), Level: slog.LevelInfo, Detail: detail}
 	cmd.Stdout, cmd.Stderr = stdout, stderr
 	cmd.Cancel = func() error { return cmd.Process.Signal(syscall.SIGTERM) }
 	cmd.WaitDelay = 3 * time.Second
@@ -39,7 +41,7 @@ func Start(ctx context.Context, configure func(*exec.Cmd), name string, args ...
 		return nil, err
 	}
 
-	p := &Process{command: cmd, done: make(chan struct{}), cancel: cancel}
+	p := &Process{command: cmd, done: make(chan struct{}), cancel: cancel, detail: detail}
 
 	go func() {
 		p.err = cmd.Wait()
@@ -55,16 +57,21 @@ func (p *Process) Stop() {
 	<-p.done
 }
 
+// WithErrorDetail adds captured subprocess stderr to an operation error.
+func (p *Process) WithErrorDetail(err error) error {
+	return p.detail.Wrap(err)
+}
+
 func (p *Process) Wait(ctx context.Context) error {
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
 	case <-p.done:
 		if p.err != nil {
-			return p.err
+			return p.WithErrorDetail(p.err)
 		}
 
-		return fmt.Errorf("%s exited unexpectedly", p.command.Path)
+		return p.WithErrorDetail(fmt.Errorf("%s exited unexpectedly", p.command.Path))
 	}
 }
 
@@ -79,9 +86,12 @@ func (p *Process) WaitSocket(ctx context.Context, path string) error {
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-p.done:
-			return fmt.Errorf("%s exited before readiness: %v", p.command.Path, p.err)
+			if p.err == nil {
+				return p.WithErrorDetail(fmt.Errorf("%s exited before readiness", p.command.Path))
+			}
+			return p.WithErrorDetail(fmt.Errorf("%s exited before readiness: %w", p.command.Path, p.err))
 		case <-timer.C:
-			return fmt.Errorf("timed out waiting for %s", path)
+			return p.WithErrorDetail(fmt.Errorf("timed out waiting for %s", path))
 		case <-tick.C:
 			info, err := os.Lstat(path)
 			if err == nil && info.Mode()&os.ModeSocket != 0 {

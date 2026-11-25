@@ -2,43 +2,96 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
+	"slices"
+	"strings"
 
-	"workshop-desktop/internal/guestcmd"
-	"workshop-desktop/internal/hostcmd"
+	"github.com/canonical/go-flags"
+
+	"workshop-desktop/internal/logging"
 )
+
+var version = "dev"
 
 func main() { os.Exit(run(os.Args[1:], os.Stdout, os.Stderr)) }
 
 func run(args []string, stdout, stderr io.Writer) int {
-	const guestUsage = guestcmd.LaunchUsage
-	const usage = "Usage: workshop-desktop host {up|connect|serve|dbus|pipewire} [OPTIONS]\n       workshop-desktop guest launch [OPTIONS]"
-	if len(args) == 0 {
-		_, _ = fmt.Fprintln(stderr, usage)
-		return 2
+	args, childArgs := splitGuestCommand(args)
+	cli := newCLI(stdout, stderr)
+	remaining, err := cli.parser.ParseArgs(args)
+	active := cli.parser.Command
+	var path []string
+	for active.Active != nil {
+		active = active.Active
+		path = append(path, active.Name)
 	}
-	switch args[0] {
-	case "--help", "-h":
-		_, _ = fmt.Fprintln(stdout, usage)
+	if cli.completed {
 		return 0
-	case "host":
-		return hostcmd.Run(args[1:], stdout, stderr)
-	case "guest":
-		if len(args) == 2 && (args[1] == "--help" || args[1] == "-h") {
-			_, _ = fmt.Fprintln(stdout, guestUsage)
-			return 0
+	}
+	var parseError *flags.Error
+	if errors.As(err, &parseError) && parseError.Type == flags.ErrHelp {
+		cli.parser.WriteHelp(stdout)
+		return 0
+	}
+	if err != nil {
+		return usageError(stderr, path, err)
+	}
+	if slices.Equal(path, []string{"guest", "launch"}) {
+		if len(remaining) != 0 {
+			return usageError(stderr, path, errors.New("place the command and its arguments after --"))
 		}
-		if len(args) >= 2 {
-			switch args[1] {
-			case "launch":
-				return guestcmd.Launch(args[2:], stdout, stderr)
-			case "audio":
-				return guestcmd.Audio(args[2:], stdout, stderr)
-			}
+		remaining = childArgs
+	}
+	if action := cli.actions[active]; action != nil {
+		return action(remaining)
+	}
+	return usageError(stderr, path, errors.New("command required"))
+}
+
+func usageError(stderr io.Writer, path []string, err error) int {
+	_, _ = fmt.Fprintf(stderr, "error: %v\n", err)
+	hint := strings.TrimSpace("workshop-desktop help " + strings.Join(path, " "))
+	_, _ = fmt.Fprintf(stderr, "Run %q for usage.\n", hint)
+	return 2
+}
+
+func finish(stderr io.Writer, code int, err error) int {
+	if err != nil {
+		_, _ = fmt.Fprintf(stderr, "error: %v\n", err)
+	}
+	return code
+}
+
+type verbosityOptions struct {
+	Quiet   bool `long:"quiet" description:"Show errors only"`
+	Brief   bool `long:"brief" description:"Show essential feedback (default)"`
+	Verbose bool `long:"verbose" description:"Show detailed diagnostics"`
+}
+
+func (v verbosityOptions) get() (logging.Verbosity, error) {
+	if v.Quiet && (v.Brief || v.Verbose) || v.Brief && v.Verbose {
+		return logging.Brief, errors.New("use only one of --quiet, --brief, and --verbose")
+	}
+	switch {
+	case v.Quiet:
+		return logging.Quiet, nil
+	case v.Verbose:
+		return logging.Verbose, nil
+	default:
+		return logging.Brief, nil
+	}
+}
+
+// splitGuestCommand keeps the child arguments out of the CLI parser entirely.
+func splitGuestCommand(args []string) (options, command []string) {
+	if len(args) >= 3 && args[0] == "guest" && args[1] == "launch" {
+		if separator := slices.Index(args[2:], "--"); separator >= 0 {
+			separator += 2
+			return args[:separator], args[separator+1:]
 		}
 	}
-	_, _ = fmt.Fprintln(stderr, usage)
-	return 2
+	return args, nil
 }

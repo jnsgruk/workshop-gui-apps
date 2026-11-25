@@ -173,7 +173,7 @@ func TestDBusProxyWaitsForSocketAndCleansUp(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(p.Root, "bind"), nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	run.waitForLogs(t, "Session D-Bus ready")
+	run.waitForLogs(t, "Session D-Bus ready.")
 	assertEndpointSocket(t, socket)
 
 	want := []string{
@@ -206,7 +206,7 @@ func TestPipeWirePublishesFirstLineAndCleansUp(t *testing.T) {
 	}
 	_ = probe.Close()
 	run := startEndpoint(t.Context(), t, p, runPipeWire)
-	run.waitForLogs(t, "PipeWire ready", "pw-container diagnostic")
+	run.waitForLogs(t, "PipeWire ready.", "pw-container diagnostic")
 	socket := filepath.Join(p.Root, "pipewire", "pipewire-0")
 	assertEndpointSocket(t, socket)
 	if _, err := os.Lstat(filepath.Join(p.Root, "source")); !os.IsNotExist(err) {
@@ -250,6 +250,9 @@ func TestEndpointsReportEarlyExit(t *testing.T) {
 			if err == nil || !strings.Contains(err.Error(), tc.message) {
 				t.Fatalf("missing early exit error: %v", err)
 			}
+			if !strings.Contains(err.Error(), "endpoint unavailable") {
+				t.Fatalf("missing endpoint stderr detail: %v", err)
+			}
 		})
 	}
 }
@@ -279,6 +282,7 @@ func TestEndpointChild(t *testing.T) {
 		return
 	}
 	if os.Getenv("ENDPOINT_TEST_EXIT") == "4" {
+		_, _ = fmt.Fprintln(os.Stderr, "endpoint unavailable")
 		os.Exit(4)
 	}
 

@@ -21,6 +21,7 @@ func TestConnectOrdersAppsMountsAndInterfaces(t *testing.T) {
 	script := `#!/bin/sh
 printf '%s | %s\n' "$PWD" "$*" >> "$CONNECT_TEST_LOG"
 if [ "$1" = remount ] && [ "$CONNECT_TEST_MODE" = remount ]; then
+  printf '%s\n' 'mount destination unavailable' >&2
   exit 3
 fi
 if [ "$1 $2" = 'connect apps/host-integration:desktop' ]; then
@@ -58,12 +59,13 @@ fi
 		mode   string
 		status int
 		calls  int
+		detail string
 	}{
-		{"success", 0, len(wantCalls)},
-		{"already", 0, len(wantCalls)},
-		{"ordinary", 7, 5},
-		{"near-match", 7, 5},
-		{"remount", 3, 2},
+		{"success", 0, len(wantCalls), ""},
+		{"already", 0, len(wantCalls), ""},
+		{"ordinary", 7, 5, "interface connection failed"},
+		{"near-match", 7, 5, "a second task failed"},
+		{"remount", 3, 2, "mount destination unavailable"},
 	} {
 		t.Run(tc.mode, func(t *testing.T) {
 			t.Setenv("CONNECT_TEST_MODE", tc.mode)
@@ -78,6 +80,9 @@ fi
 			} else {
 				if exit, ok := errors.AsType[*exec.ExitError](err); !ok || exit.ExitCode() != tc.status {
 					t.Fatalf("wanted command failure with status %d, got %v", tc.status, err)
+				}
+				if !strings.Contains(err.Error(), tc.detail) {
+					t.Fatalf("error %q missing stderr detail %q", err, tc.detail)
 				}
 			}
 

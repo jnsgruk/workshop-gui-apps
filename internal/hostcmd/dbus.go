@@ -39,6 +39,6 @@ func runDBus(ctx context.Context, p host.Project) error {
 		return err
 	}
 
-	logging.Logger(ctx).InfoContext(ctx, "Session D-Bus ready", "socket", socket)
+	logging.Progress(ctx, "Session D-Bus ready.", "socket", socket)
 	return process.Wait(ctx)
 }

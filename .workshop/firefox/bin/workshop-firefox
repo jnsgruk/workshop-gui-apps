@@ -6,9 +6,9 @@ export MOZ_ENABLE_WAYLAND=1
 # Snap must create its transient scope through the container's systemd user
 # manager. Switch buses only after entering the confined snap environment;
 # --shell runs Firefox's command chain before executing this shell command.
-exec /usr/local/bin/workshop-desktop guest launch --session-bus=local snap run --shell firefox -c '
+exec /usr/local/bin/workshop-desktop guest launch --session-bus local -- snap run --shell firefox -c '
   if [ ! -S /run/user/1000/snap.firefox/hostbus/bus ]; then
-    echo "Host session D-Bus socket is missing. Keep workshop-desktop host serve (or host dbus) running; refresh and reconnect the workshop if its hostbus mount is missing." >&2
+    echo "error: host session D-Bus socket is missing. Keep workshop-desktop host serve running. Refresh and reconnect the workshop if its hostbus mount is missing." >&2
     exit 1
   fi
   export DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/snap.firefox/hostbus/bus

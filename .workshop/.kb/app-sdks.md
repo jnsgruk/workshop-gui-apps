@@ -15,6 +15,8 @@ IMPORTANT: Read the `.kb/agents.md` file.
 - Add an action in [apps.yaml](../apps.yaml) that starts the installed guest
   executable and forwards arguments with `"$@"`. Set any toolkit-specific
   Wayland options that belong to the guest launch in the action or its wrapper.
+  When using `workshop-desktop guest launch`, put wrapper flags before `--` and
+  the executable and its arguments after it.
 
 ## §2 - Add host launcher metadata
 
@@ -42,8 +44,8 @@ with `--ozone-platform=wayland` in [apps.yaml](../apps.yaml).
 ## Verification
 
 After applying SDK changes, run `workshop run apps -- <action>` on a
-connected host. Exercise `workshop-desktop host launchers install <sdk>`,
+connected host. Exercise `workshop-desktop host install-launcher <sdk>`,
 launch from app search, and check the icon and grouping in the dock and
-overview. Use `workshop-desktop host launchers remove <sdk>` to verify cleanup.
+overview. Use `workshop-desktop host remove-launcher <sdk>` to verify cleanup.
 See the [development workflow](../../.kb/desktop-development.md#development-workflow)
 and [live acceptance checks](../../docs/desktop-integration.md#live-acceptance-checks).

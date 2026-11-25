@@ -2,50 +2,92 @@ package main
 
 import (
 	"bytes"
+	"slices"
 	"strings"
 	"testing"
 )
 
 func TestDispatchAndHelpWithoutHostProject(t *testing.T) {
-	// Neither guest operations nor help should load a host .workshop.lock.
 	t.Chdir(t.TempDir())
 	for _, tc := range []struct {
-		args   []string
+		args   string
 		code   int
 		output string
 	}{
-		{nil, 2, "Usage:"},
-		{[]string{"--help"}, 0, "Usage:"},
-		{[]string{"unknown"}, 2, "Usage:"},
-		{[]string{"host"}, 2, "Usage:"},
-		{[]string{"host", "unknown"}, 2, "unknown host command"},
-		{[]string{"host", "--help"}, 0, "Usage:"},
-		{[]string{"host", "connect", "--help"}, 0, "-workshop"},
-		{[]string{"host", "serve", "--help"}, 0, "-only"},
-		{[]string{"host", "up", "--help"}, 0, "-workshop"},
-		{[]string{"host", "up", "--workshop=../apps"}, 2, "invalid workshop name"},
-		{[]string{"host", "up", "--only=invalid"}, 2, "unknown handler"},
-		{[]string{"host", "open"}, 2, "unknown host command"},
-		{[]string{"host", "serve", "--only=invalid"}, 2, "unknown handler"},
-		{[]string{"host", "serve", "--only="}, 2, "unknown handler"},
-		{[]string{"host", "serve", "--only=pipewire,dbus", "unexpected"}, 2, "unexpected positional arguments"},
-		{[]string{"host", "dbus", "--help"}, 0, "-project"},
-		{[]string{"host", "pipewire", "--help"}, 0, "-project"},
-		{[]string{"guest"}, 2, "Usage:"},
-		{[]string{"guest", "unknown"}, 2, "Usage:"},
-		{[]string{"guest", "--help"}, 0, "Usage:"},
-		{[]string{"guest", "launch", "--help"}, 0, "--session-bus"},
-		{[]string{"guest", "launch", "--session-bus=local"}, 2, "Usage:"},
-		{[]string{"guest", "launch", "--session-bus=invalid", "/bin/true"}, 2, "Usage:"},
+		{"", 2, "error:"},
+		{"--help", 0, "Add --verbose after a host operation or guest launch"},
+		{"help", 0, "Add --verbose after a host operation or guest launch"},
+		{"version", 0, version},
+		{"version extra", 2, "unexpected positional arguments"},
+		{"unknown", 2, "Run \"workshop-desktop help\""},
+		{"host", 2, "Run \"workshop-desktop help host\""},
+		{"host unknown", 2, "unknown"},
+		{"host --help", 0, "install-launcher"},
+		{"host connect --help", 0, "--workshop"},
+		{"host connect -project /missing", 2, "unknown flag"},
+		{"host serve --help", 0, "--handlers"},
+		{"host start --help", 0, "--workshop"},
+		{"host start --project /missing --help", 0, "--project"},
+		{"host start --workshop apps --workshop ../bad", 2, "invalid workshop name"},
+		{"host start --quiet --verbose", 2, "use only one"},
+		{"host start --verbose --quiet", 2, "use only one"},
+		{"host serve --handlers invalid", 2, "unknown handler"},
+		{"host serve --handlers=", 2, "missing handler names"},
+		{"host serve --handlers dbus --handlers pipewire", 2, "only once"},
+		{"host serve --only dbus", 2, "unknown flag"},
+		{"host serve --handlers dbus,pipewire unexpected", 2, "unexpected positional arguments"},
+		{"host install-launcher", 2, "missing SDK name or --all"},
+		{"host install-launcher --all demo", 2, "cannot specify both"},
+		{"host remove-launcher --project /missing invalid/name", 2, "invalid SDK name"},
+		{"host remove-launcher invalid/name --project /missing", 2, "invalid SDK name"},
+		{"host up", 2, "Unknown command"},
+		{"host dbus --help", 2, "Unknown command"},
+		{"help host pipewire", 2, "unknown command"},
+		{"host launchers install --help", 2, "Unknown command"},
+		{"help host launchers remove", 2, "unknown command"},
+		{"guest --help", 0, "launch"},
+		{"guest launch --help", 0, "-- <command>"},
+		{"guest launch --session-bus local --help", 0, "--session-bus"},
+		{"guest launch -session-bus local --help", 2, "unknown flag"},
+		{"guest launch --session-bus local --", 2, "missing command"},
+		{"guest launch -- true", 2, "missing --session-bus"},
+		{"guest launch --session-bus invalid -- true", 2, "invalid session bus"},
+		{"guest audio --help", 2, "Unknown command"},
+		{"-h", 2, "unknown flag"},
+		{"guest launch --session-bus local true", 2, "after --"},
+		{"guest launch --session-bus local true -- false", 2, "after --"},
+		{"help host unknown", 2, "unknown command"},
 	} {
-		t.Run(strings.Join(tc.args, " "), func(t *testing.T) {
+		t.Run(tc.args, func(t *testing.T) {
 			var stdout, stderr bytes.Buffer
-			if code := run(tc.args, &stdout, &stderr); code != tc.code {
-				t.Fatalf("exit %d, want %d: %s%s", code, tc.code, &stdout, &stderr)
+			if code := run(strings.Fields(tc.args), &stdout, &stderr); code != tc.code {
+				t.Fatalf("exit %d, want %d; stdout %q, stderr %q", code, tc.code, &stdout, &stderr)
 			}
-			if output := stdout.String() + stderr.String(); !strings.Contains(output, tc.output) {
-				t.Fatalf("output %q, want %q", output, tc.output)
+			got, other := stdout.String(), stderr.String()
+			if tc.code != 0 {
+				got, other = other, got
+			}
+			if !strings.Contains(got, tc.output) || other != "" {
+				t.Fatalf("stdout %q, stderr %q; want %q on designated stream only", &stdout, &stderr, tc.output)
 			}
 		})
+	}
+}
+
+func TestGuestLaunchCommandBoundary(t *testing.T) {
+	want := []string{"/some command", "--help", "", "--", "-x"}
+	options := []string{"guest", "launch", "--session-bus", "local"}
+	args := slices.Concat(options, []string{"--"}, want)
+	gotOptions, gotCommand := splitGuestCommand(args)
+	if !slices.Equal(gotOptions, options) || !slices.Equal(gotCommand, want) {
+		t.Fatalf("split %q into %q and %q; want %q and %q", args, gotOptions, gotCommand, options, want)
+	}
+}
+
+func TestLauncherRejectsEmptySDKWithAll(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"host", "remove-launcher", "--all", ""}, &stdout, &stderr)
+	if code != 2 || stdout.Len() != 0 || !strings.Contains(stderr.String(), "empty SDK name") {
+		t.Fatalf("exit %d; stdout %q, stderr %q", code, &stdout, &stderr)
 	}
 }
