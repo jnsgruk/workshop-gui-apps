@@ -163,3 +163,20 @@ func TestServeCancellationOnlyLocksSelectedHandlers(t *testing.T) {
 		t.Fatal("handlers did not stop")
 	}
 }
+
+func TestServeHandlerCancellationStopsSiblings(t *testing.T) {
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	err := serveHandlers(ctx, host.Project{}, []handler{
+		{"dbus", func(context.Context, host.Project) error {
+			return context.Canceled
+		}},
+		{"pipewire", func(ctx context.Context, _ host.Project) error {
+			<-ctx.Done()
+			return ctx.Err()
+		}},
+	})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("serve returned %v, want cancellation", err)
+	}
+}

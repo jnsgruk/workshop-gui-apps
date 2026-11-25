@@ -7,6 +7,8 @@ import (
 	"os"
 	"strings"
 
+	"golang.org/x/sync/errgroup"
+
 	"workshop-desktop/internal/host"
 	"workshop-desktop/internal/logging"
 )
@@ -75,31 +77,28 @@ func runHandlers(ctx context.Context, p host.Project, selected []handler) error 
 func serveHandlers(ctx context.Context, p host.Project, selected []handler) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	results := make(chan error, len(selected))
+	group, handlerGroupCtx := errgroup.WithContext(ctx)
 	for _, h := range selected {
-		go func() {
-			handlerCtx := logging.WithLogger(ctx, logging.Logger(ctx).With("handler", h.name))
+		group.Go(func() error {
+			handlerCtx := logging.WithLogger(handlerGroupCtx, logging.Logger(handlerGroupCtx).With("handler", h.name))
 			err := h.run(handlerCtx, p)
-			if ctx.Err() != nil {
+			if handlerGroupCtx.Err() != nil {
 				// Child processes often return a signal error on cancellation.
-				err = ctx.Err()
+				err = handlerGroupCtx.Err()
 			} else if err == nil {
 				err = errors.New("handler exited unexpectedly")
 			}
-			results <- fmt.Errorf("%s: %w", h.name, err)
-		}()
+			if errors.Is(err, context.Canceled) {
+				// A handler can return cancellation before the group context is done.
+				cancel()
+				return nil
+			}
+			return fmt.Errorf("%s: %w", h.name, err)
+		})
 	}
 
-	var failure error
-	for range selected {
-		err := <-results
-		if failure == nil && !errors.Is(err, context.Canceled) {
-			failure = err
-		}
-		cancel()
+	if err := group.Wait(); err != nil {
+		return err
 	}
-	if failure != nil {
-		return failure
-	}
-	return ctx.Err()
+	return handlerGroupCtx.Err()
 }
