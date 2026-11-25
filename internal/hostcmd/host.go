@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"path/filepath"
 	"slices"
 
 	"workshop-desktop/internal/host"
@@ -13,13 +14,14 @@ import (
 
 // Options contains the parsed arguments for a host command.
 type Options struct {
-	Project   string
-	Workshop  string
-	Workshops []string
-	Handlers  string
-	SDK       string
-	All       bool
-	Verbosity logging.Verbosity
+	Project            string
+	WorkshopExecutable string
+	Workshop           string
+	Workshops          []string
+	Handlers           string
+	SDK                string
+	All                bool
+	Verbosity          logging.Verbosity
 }
 
 // Validate checks command arguments without loading the project.
@@ -39,6 +41,11 @@ func Validate(command string, opts Options) error {
 			if !validWorkshopName(name) {
 				return fmt.Errorf("invalid workshop name %q", name)
 			}
+		}
+	case "stop":
+	case "supervise":
+		if opts.WorkshopExecutable != "" && !filepath.IsAbs(opts.WorkshopExecutable) {
+			return fmt.Errorf("Workshop executable must be an absolute path")
 		}
 	case "install-launcher", "remove-launcher":
 		if opts.All && opts.SDK != "" {
@@ -69,6 +76,10 @@ func Execute(command string, opts Options, stdout, stderr io.Writer) error {
 
 	operation := func(ctx context.Context, p host.Project) error {
 		switch command {
+		case "stop":
+			return stopSupervisor(ctx, p)
+		case "supervise":
+			return supervise(ctx, p, opts.WorkshopExecutable)
 		case "connect":
 			return connect(ctx, p, opts.Workshop)
 		case "serve":

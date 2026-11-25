@@ -26,6 +26,9 @@ IMPORTANT: Read the `.kb/agents.md` file.
   `icon` to the PNG basename. The installer derives
   `workshop-apps-<sdk>.desktop` from the SDK directory. Keep that prefix to
   avoid colliding with native desktop entries.
+- The generated entry calls `workshop-desktop host launch` with the Workshop
+  command after `--`. The host command waits for the shared project bridge
+  before running the action. Reinstall entries after upgrading old launchers.
 - Use the optional `startup_wm_class` for the package's verified window
   identity. Check the packaged desktop entry and, when possible, observe the
   running Wayland app ID. A visible icon in app search only verifies the

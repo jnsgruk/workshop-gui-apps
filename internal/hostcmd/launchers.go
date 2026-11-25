@@ -107,6 +107,14 @@ func manageLauncher(ctx context.Context, p host.Project, sdk string, install boo
 	if strings.Contains(workshop, "%") {
 		return fmt.Errorf("Workshop executable path contains %% and cannot be used in a desktop launcher: %s", workshop)
 	}
+	launcher, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("find workshop-desktop executable: %w", err)
+	}
+	if strings.Contains(launcher, "%") {
+		return fmt.Errorf("workshop-desktop executable path contains %% and cannot be used in a desktop launcher: %s", launcher)
+	}
+
 	icon, err := os.ReadFile(filepath.Join(sdkDir, metadata.Icon))
 	if err != nil {
 		return fmt.Errorf("read launcher icon: %w", err)
@@ -117,8 +125,8 @@ func manageLauncher(ctx context.Context, p host.Project, sdk string, install boo
 	if err := writeLauncherFile(iconPath, icon); err != nil {
 		return err
 	}
-	entry := fmt.Sprintf("[Desktop Entry]\n%s\nType=Application\nName=%s\nExec=%s run apps -- %s\nPath=%s\nIcon=%s\nTerminal=false\n",
-		paths.owner, desktopValue(metadata.Name), desktopExec(workshop), metadata.Action,
+	entry := fmt.Sprintf("[Desktop Entry]\n%s\nType=Application\nName=%s\nExec=%s host launch --notify -- %s run apps -- %s\nPath=%s\nIcon=%s\nTerminal=false\n",
+		paths.owner, desktopValue(metadata.Name), desktopExec(launcher), desktopExec(workshop), metadata.Action,
 		desktopValue(p.Directory), desktopValue(iconPath))
 	if metadata.StartupWMClass != "" {
 		entry += "StartupWMClass=" + desktopValue(metadata.StartupWMClass) + "\n"

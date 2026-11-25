@@ -106,3 +106,51 @@ func TestInstallRejectsNestedDesktopIDCollision(t *testing.T) {
 		})
 	}
 }
+
+func TestInstallLauncherUsesSharedBridgeWrapper(t *testing.T) {
+	dataHome := t.TempDir()
+	t.Setenv("XDG_DATA_HOME", dataHome)
+	t.Setenv("XDG_DATA_DIRS", t.TempDir())
+	toolsDir := filepath.Join(t.TempDir(), "host tools")
+	if err := os.Mkdir(toolsDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	workshop := filepath.Join(toolsDir, "workshop")
+	if err := os.WriteFile(workshop, nil, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", toolsDir)
+
+	project := host.Project{Directory: filepath.Join(t.TempDir(), "app project")}
+	sdk := filepath.Join(project.Directory, ".workshop", "any")
+	if err := os.MkdirAll(sdk, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	metadata := []byte(`{"name":"Any","action":"any","icon":"launcher.png","startup_wm_class":"Any"}`)
+	if err := os.WriteFile(filepath.Join(sdk, "launcher.json"), metadata, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sdk, "launcher.png"), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := manageLauncher(t.Context(), project, "any", true); err != nil {
+		t.Fatal(err)
+	}
+	launcher, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	entry, err := os.ReadFile(filepath.Join(dataHome, "applications", launcherPrefix+"any.desktop"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, line := range []string{
+		"Exec=" + desktopExec(launcher) + " host launch --notify -- " + desktopExec(workshop) + " run apps -- any",
+		"Path=" + desktopValue(project.Directory),
+		"StartupWMClass=Any",
+	} {
+		if !strings.Contains(string(entry), "\n"+line+"\n") {
+			t.Errorf("desktop entry missing %q:\n%s", line, entry)
+		}
+	}
+}

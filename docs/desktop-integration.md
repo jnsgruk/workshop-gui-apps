@@ -214,7 +214,14 @@ Run these checks in the connected `apps` workshop with the host handlers
 running. The [automated tests](../.kb/desktop-development.md#testing) cover
 the helpers and wrappers.
 
-For the combined startup, run `host start` after launching `apps` and wait for
+For launcher-managed startup, reinstall the desktop entries and stop any
+foreground helpers. On GNOME Wayland, stop `apps` and close the terminal.
+Click two different entries during cold startup and confirm both apps open after
+one bridge initialization. Close the first app and launch it again. Verify
+that `host stop` and GNOME logout clean up the bridge, and check that the next
+click starts a new one. Check startup failure reporting from a desktop click.
+
+For the foreground startup, run `host start` after launching `apps` and wait for
 both helpers to report ready. Stop `host start` with Ctrl-C, leave a guest app
 running, then run `host start` again. Verify that the guest app retains its
 process ID and the helpers report ready again.

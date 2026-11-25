@@ -111,6 +111,13 @@ type launcherOptions struct {
 	} `positional-args:"yes"`
 }
 
+type hostLaunchOptions struct {
+	hostOptions
+	Notify bool `long:"notify" description:"Show bridge startup errors as desktop notifications"`
+}
+
+func (*hostLaunchOptions) Usage() string { return "[OPTIONS] -- <command> [<arg>...]" }
+
 func (c *cli) addHostCommands(host *flags.Command) {
 	connect := &connectOptions{}
 	c.add(host, "connect", "Connect a workshop to the desktop bridge", connect, func(args []string) int {
@@ -126,6 +133,31 @@ func (c *cli) addHostCommands(host *flags.Command) {
 		handlers, err := start.handlerSelection()
 		return c.runHost("start", start.hostOptions, hostcmd.Options{Handlers: handlers, Workshops: start.Workshops}, err, args)
 	})
+	launch := &hostLaunchOptions{}
+	c.add(host, "launch", "Start the shared desktop bridge and run a command", launch, func(args []string) int {
+		path := []string{"host", "launch"}
+		if len(args) == 0 || args[0] == "" {
+			return usageError(c.stderr, path, errors.New("missing command after --"))
+		}
+		verbosity, err := launch.get()
+		if err != nil {
+			return usageError(c.stderr, path, err)
+		}
+		code, err := hostcmd.Launch(launch.Project, args, launch.Notify, c.stdout, c.stderr, verbosity)
+		return finish(c.stderr, code, err)
+	})
+	stop := &hostOptions{}
+	c.add(host, "stop", "Stop the shared desktop bridge", stop, func(args []string) int {
+		return c.runHost("stop", *stop, hostcmd.Options{}, nil, args)
+	})
+	supervisor := &struct {
+		hostOptions
+		WorkshopExecutable string `long:"workshop-executable" value-name:"PATH" description:"Workshop executable for bridge repair"`
+	}{}
+	c.add(host, "supervise", "Run the shared desktop bridge", supervisor, func(args []string) int {
+		return c.runHost("supervise", supervisor.hostOptions, hostcmd.Options{WorkshopExecutable: supervisor.WorkshopExecutable}, nil, args)
+	}).Hidden = true
+
 	for _, launcher := range []struct{ name, summary string }{
 		{"install-launcher", "Install desktop launchers for workshop SDKs"},
 		{"remove-launcher", "Remove desktop launchers for workshop SDKs"},

@@ -3,6 +3,7 @@ package host
 import (
 	"context"
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"syscall"
@@ -90,7 +91,13 @@ func (p *Process) WaitSocket(ctx context.Context, path string) error {
 			return p.WithErrorDetail(fmt.Errorf("timed out waiting for %s", path))
 		case <-tick.C:
 			info, err := os.Lstat(path)
-			if err == nil && info.Mode()&os.ModeSocket != 0 {
+			if err != nil || info.Mode()&os.ModeSocket == 0 {
+				continue
+			}
+			dialer := net.Dialer{Timeout: 50 * time.Millisecond}
+			conn, err := dialer.DialContext(ctx, "unix", path)
+			if err == nil {
+				_ = conn.Close()
 				return nil
 			}
 		}

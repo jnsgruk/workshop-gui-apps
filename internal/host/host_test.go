@@ -53,7 +53,7 @@ func TestPrivatePathsAndSocketCleanupRejectSymlinksAndFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := privateDirectory(link); err == nil {
+	if err := PrivateDirectory(link); err == nil {
 		t.Fatal("accepted symlink directory")
 	}
 

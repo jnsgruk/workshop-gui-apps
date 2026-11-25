@@ -103,6 +103,8 @@ standard-library and language modernization suggestions.
   connections, command order, failed remounts, and inherited output pipes. [Tests](../internal/hostcmd/connect_test.go)
 - Host serving tests cover handler selection, locks, cancellation, and cleanup
   when a sibling fails. [Tests](../internal/hostcmd/serve_test.go)
+- Supervisor tests cover shared readiness, startup failure, session ownership
+  and explicit stop over a private Unix control socket. [Tests](../internal/hostcmd/supervisor_test.go)
 - CLI tests cover routing, help, and exit codes. [Tests](../cmd/workshop-desktop/main_test.go)
 - Logging tests cover split lines, trailing child output, and oversized records. [Tests](../internal/logging/logging_test.go)
 - Guest launch tests observe the session bus at Snap startup and after Firefox’s

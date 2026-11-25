@@ -26,7 +26,7 @@ func (r workshopRepair) needed() bool {
 }
 
 func up(ctx context.Context, p host.Project, names []string, selected []handler) error {
-	if _, err := exec.LookPath("workshop"); err != nil {
+	if _, err := exec.LookPath(workshopExecutable(ctx)); err != nil {
 		return err
 	}
 	// Mount repairs can restart the guest and affect both handlers.

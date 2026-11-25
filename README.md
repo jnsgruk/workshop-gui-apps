@@ -29,10 +29,10 @@ Host PipeWire must support SecurityContext and have a running session manager su
 
 ```sh
 workshop launch apps
-./bin/workshop-desktop host start
 ```
 
-Run `host start` in a host graphical-session terminal, without sudo. It checks the
+For app menu launches, follow [Host app launchers](#host-app-launchers).
+For terminal-driven launches, run `./bin/workshop-desktop host start` in a host graphical-session terminal, without sudo. It checks the
 desktop integration for `apps`, repairs missing connections, and serves the
 host endpoints in the foreground. If a mount needs repair, it may stop and
 restart the workshop. Close guest GUI apps before running it after a mount
@@ -96,8 +96,16 @@ The installer writes entries under
 `${XDG_DATA_HOME:-$HOME/.local/share}/applications` and copies the icons
 shipped alongside the SDK metadata. The icons come from the Any nightly
 AppImage, Firefox Snap, and ChatGPT Debian package. Each launcher runs its
-existing `apps` action in this checkout. Start the host helpers before using
-the launchers.
+existing `apps` action in this checkout. On GNOME Wayland, the first click
+starts a shared bridge for the project and waits for D-Bus and PipeWire before
+running the action. Concurrent clicks share startup. The bridge stays up after
+the app closes and stops when GNOME ends the session or you run
+`./bin/workshop-desktop host stop`. Startup errors appear as desktop
+notifications when available. The error includes the project’s runtime log path
+for supervisor failures.
+
+If a foreground `host start` or `host serve` is already running, stop it before
+switching to launcher-managed startup.
 
 Run the same command again to update an entry. Use `host remove-launcher SDK`
 to uninstall one entry or `host remove-launcher --all` to uninstall all entries

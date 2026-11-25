@@ -27,6 +27,9 @@ func TestDispatchAndHelpWithoutHostProject(t *testing.T) {
 		{"host connect -project /missing", 2, "unknown flag"},
 		{"host serve --help", 0, "--handlers"},
 		{"host start --help", 0, "--workshop"},
+		{"host launch --help", 0, "-- <command>"},
+		{"host launch --", 2, "missing command"},
+		{"host launch true -- false", 2, "after --"},
 		{"host start --project /missing --help", 0, "--project"},
 		{"host start --workshop apps --workshop ../bad", 2, "invalid workshop name"},
 		{"host start --quiet --verbose", 2, "use only one"},
@@ -74,13 +77,14 @@ func TestDispatchAndHelpWithoutHostProject(t *testing.T) {
 	}
 }
 
-func TestGuestLaunchCommandBoundary(t *testing.T) {
+func TestLaunchCommandBoundary(t *testing.T) {
 	want := []string{"/some command", "--help", "", "--", "-x"}
-	options := []string{"guest", "launch", "--session-bus", "local"}
-	args := slices.Concat(options, []string{"--"}, want)
-	gotOptions, gotCommand := splitGuestCommand(args)
-	if !slices.Equal(gotOptions, options) || !slices.Equal(gotCommand, want) {
-		t.Fatalf("split %q into %q and %q; want %q and %q", args, gotOptions, gotCommand, options, want)
+	for _, options := range [][]string{{"guest", "launch", "--session-bus", "local"}, {"host", "launch", "--notify"}} {
+		args := slices.Concat(options, []string{"--"}, want)
+		gotOptions, gotCommand := splitLaunchCommand(args)
+		if !slices.Equal(gotOptions, options) || !slices.Equal(gotCommand, want) {
+			t.Fatalf("split %q into %q and %q; want %q and %q", args, gotOptions, gotCommand, options, want)
+		}
 	}
 }
 

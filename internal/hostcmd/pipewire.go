@@ -85,6 +85,7 @@ func runPipeWire(ctx context.Context, p host.Project) error {
 		return startupError(err)
 	}
 
+	reportEndpointReady(ctx)
 	logging.Progress(ctx, "PipeWire ready.", "socket", socket)
 	return process.Wait(ctx)
 }

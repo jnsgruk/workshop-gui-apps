@@ -65,8 +65,17 @@ func connect(ctx context.Context, p host.Project, name string) error {
 	return nil
 }
 
+type workshopExecutableKey struct{}
+
+func workshopExecutable(ctx context.Context) string {
+	if path, ok := ctx.Value(workshopExecutableKey{}).(string); ok && path != "" {
+		return path
+	}
+	return "workshop"
+}
+
 func workshopCommand(ctx context.Context, p host.Project, args ...string) error {
-	cmd := exec.CommandContext(ctx, "workshop", args...)
+	cmd := exec.CommandContext(ctx, workshopExecutable(ctx), args...)
 	cmd.WaitDelay = workshopWaitDelay
 	cmd.Dir = p.Directory
 	logger := logging.Logger(ctx).With("process", "workshop", "operation", args[0])
@@ -95,7 +104,7 @@ func remount(ctx context.Context, p host.Project, name string, mounts []bridgeMo
 func connectInterface(ctx context.Context, directory, name, sdk, capability string) error {
 	plug := name + "/" + sdk + ":" + capability
 	slot := name + "/system:" + capability
-	cmd := exec.CommandContext(ctx, "workshop", "connect", plug)
+	cmd := exec.CommandContext(ctx, workshopExecutable(ctx), "connect", plug)
 	cmd.WaitDelay = workshopWaitDelay
 	cmd.Dir = directory
 

@@ -57,7 +57,7 @@ func Load(directory string) (Project, error) {
 	p.Root = fmt.Sprintf("/tmp/workshop-desktop-%d-%s", os.Getuid(), id)
 
 	for _, part := range []string{"", "session", "pipewire"} {
-		if err := privateDirectory(filepath.Join(p.Root, part)); err != nil {
+		if err := PrivateDirectory(filepath.Join(p.Root, part)); err != nil {
 			return Project{}, err
 		}
 	}
@@ -65,7 +65,8 @@ func Load(directory string) (Project, error) {
 	return p, nil
 }
 
-func privateDirectory(path string) error {
+// PrivateDirectory ensures a directory belongs to the current user and has mode 0700.
+func PrivateDirectory(path string) error {
 	if err := os.Mkdir(path, 0o700); err != nil && !os.IsExist(err) {
 		return err
 	}
@@ -94,7 +95,7 @@ func (p Project) Lock(capability string) (*os.File, error) {
 	if err := syscall.Flock(fd, syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
 		_ = f.Close()
 		if errors.Is(err, syscall.EWOULDBLOCK) {
-			return nil, fmt.Errorf("%s helper already running; stop it before reconnecting", capability)
+			return nil, fmt.Errorf("%s helper already running; stop it before reconnecting: %w", capability, err)
 		}
 		return nil, fmt.Errorf("lock %s capability: %w", capability, err)
 	}
@@ -126,7 +127,8 @@ func Run(ctx context.Context, directory string, directoryOnly bool, run func(con
 	if os.Getuid() == 0 {
 		return errors.New("run as your desktop user without sudo")
 	}
-	syscall.Umask(0o077)
+	previousMask := syscall.Umask(0o077)
+	defer syscall.Umask(previousMask)
 	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM)
 	defer stop()
 

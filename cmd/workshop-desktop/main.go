@@ -19,7 +19,7 @@ var version = "dev"
 func main() { os.Exit(run(os.Args[1:], os.Stdout, os.Stderr)) }
 
 func run(args []string, stdout, stderr io.Writer) int {
-	args, childArgs := splitGuestCommand(args)
+	args, childArgs := splitLaunchCommand(args)
 	cli := newCLI(stdout, stderr)
 	remaining, err := cli.parser.ParseArgs(args)
 	active := cli.parser.Command
@@ -39,7 +39,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	if err != nil {
 		return usageError(stderr, path, err)
 	}
-	if slices.Equal(path, []string{"guest", "launch"}) {
+	if len(path) == 2 && path[1] == "launch" {
 		if len(remaining) != 0 {
 			return usageError(stderr, path, errors.New("place the command and its arguments after --"))
 		}
@@ -85,9 +85,9 @@ func (v verbosityOptions) get() (logging.Verbosity, error) {
 	}
 }
 
-// splitGuestCommand keeps the child arguments out of the CLI parser entirely.
-func splitGuestCommand(args []string) (options, command []string) {
-	if len(args) >= 3 && args[0] == "guest" && args[1] == "launch" {
+// splitLaunchCommand keeps the child arguments out of the CLI parser entirely.
+func splitLaunchCommand(args []string) (options, command []string) {
+	if len(args) >= 3 && (args[0] == "guest" || args[0] == "host") && args[1] == "launch" {
 		if separator := slices.Index(args[2:], "--"); separator >= 0 {
 			separator += 2
 			return args[:separator], args[separator+1:]
