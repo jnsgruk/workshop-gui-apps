@@ -11,10 +11,12 @@ fi
 # create this shared parent as root with mode 0700 when connecting the plugs.
 install -d -m 0711 /mnt/workshop-host
 
-# Audio: install the guest PulseAudio compatibility service and wrapper.
+# Install guest desktop integration dependencies and the color emoji font.
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
-apt-get install -y --no-install-recommends pipewire-pulse dbus-user-session wayland-utils libglib2.0-bin
+apt-get install -y --no-install-recommends \
+  pipewire-pulse dbus-user-session wayland-utils libglib2.0-bin \
+  fontconfig fonts-noto-color-emoji
 
 # The host owns the graph and session manager. Only our compatibility server
 # should listen on the guest Pulse socket, including after socket activation.
