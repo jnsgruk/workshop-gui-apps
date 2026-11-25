@@ -20,7 +20,7 @@ workshop launch dev
 workshop run dev -- build
 ```
 
-See [development workflow](AGENTS.md#development-workflow) for build output,
+See [development workflow](.kb/desktop-development.md#development-workflow) for build output,
 testing, and how to apply source changes.
 
 The host needs Workshop/LXD with nested Snap support, a Wayland session,
@@ -143,7 +143,7 @@ When upgrading from the dedicated opener bridge, stop any standalone
 `workshop-desktop host open` process before refreshing the apps workshop.
 Use `host dbus` or `host serve` for URL opening after the upgrade.
 
-Follow the [refresh workflow](AGENTS.md#apply-source-changes) after rebuilding.
+Follow the [refresh workflow](.kb/desktop-development.md#apply-source-changes) after rebuilding.
 
 ## Troubleshoot audio
 

@@ -210,7 +210,7 @@ relaunch Any.
 ## Live acceptance checks
 
 Run these checks in the connected `apps` workshop with the host handlers
-running. The [automated tests](../AGENTS.md#testing) cover
+running. The [automated tests](../.kb/desktop-development.md#testing) cover
 the helpers and wrappers.
 
 For the combined startup, run `host up` after launching `apps` and wait for
