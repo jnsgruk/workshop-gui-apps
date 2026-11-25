@@ -149,13 +149,14 @@ The shared hook checks for the staged binary before changing the guest.
 The Firefox SDK installs `snapd` and `dbus-user-session`, owns the native camera
 plug and Snap permissions, and persists the Firefox profile across refreshes.
 The [`any` setup hook](../.workshop/any/hooks/setup-base) installs the
-application libraries and resolves the latest Linux amd64 AppImage from the
-nightly manifest. It downloads to a temporary file in `/opt/any` and renames
-it to `/opt/any/Any.AppImage` after a successful download. The launcher uses
-that installed path on every run. An incremental refresh can reuse the SDK
-without downloading a new build. The launcher forwards arguments and uses
-`--appimage-extract-and-run` to run without FUSE and leaves the application’s
-sandbox defaults in effect.
+application libraries and downloads the pinned Linux amd64 AppImage. It
+downloads to a temporary file in `/opt/any` and renames it to
+`/opt/any/Any.AppImage` after a successful download. The
+[host updater](../.workshop/any/update.sh) checks the nightly manifest and
+changes the pin when the published version differs. Run `workshop refresh apps`
+to install the updated pin. The launcher uses the installed path on every run,
+forwards arguments, and uses `--appimage-extract-and-run` to run without FUSE
+while keeping the application’s sandbox defaults.
 
 Both app actions use `workshop-desktop guest launch`. Any selects
 `--session-bus=host`. Firefox selects `--session-bus=local` so Snap can

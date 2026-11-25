@@ -67,7 +67,20 @@ workshop run apps -- codex  # ChatGPT desktop
 workshop exec apps -- codex  # Codex CLI
 ```
 
-Any setup requires access to the [Linux amd64 nightly release feed](https://s3.eu-central-1.amazonaws.com/anytype-anyui-nightly/desktop/any/latest.json).
+To update Any, close the app and stop the host helpers. From the repository
+root on the host, run the updater (requires `curl` and `jq`), then refresh
+and reconnect:
+
+```sh
+.workshop/any/update.sh
+workshop refresh apps
+./bin/workshop-desktop host connect
+```
+
+Restart the host helpers and relaunch Any. The updater checks the
+[Linux amd64 nightly release feed](https://s3.eu-central-1.amazonaws.com/anytype-anyui-nightly/desktop/any/latest.json)
+and edits the version pin in `.workshop/any/hooks/setup-base` when it changes.
+
 The [Codex desktop SDK](.workshop/codex-desktop) installs ChatGPT from OpenAI’s
 signed APT repository. See the [guest SDK setup](docs/desktop-integration.md#guest-sdk-setup)
 for install and launch behavior, and [Any state across refreshes](docs/desktop-integration.md#any-state-across-refreshes)
